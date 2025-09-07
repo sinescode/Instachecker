@@ -52,7 +52,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final TextEditingController _textController = TextEditingController();
   File? _pickedFile;
   File? _jsonFile;
-  String _inputFileName = "usernames"; // Default name for text input
+  String _inputFileName = "usernames";
 
   // Configuration
   static const int _maxRetries = 10;
@@ -90,7 +90,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (result != null) {
       setState(() {
         _pickedFile = File(result.files.single.path!);
-        // Extract filename without extension
         String path = _pickedFile!.path;
         String fileName = path.split('/').last;
         _inputFileName = fileName.split('.').first;
@@ -134,7 +133,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final text = _textController.text;
     if (text.trim().isEmpty) return;
 
-    // For text input, use default filename
     setState(() {
       _inputFileName = "usernames";
     });
@@ -156,10 +154,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _activeAccounts.clear();
     });
 
-    // Create a semaphore to limit concurrent requests
     final semaphore = Semaphore(_concurrentLimit);
-
-    // Process all usernames
     final futures = usernames.map((username) => _checkUsername(username, semaphore));
     final results = await Future.wait(futures);
 
@@ -167,8 +162,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       setState(() {
         _isProcessing = false;
       });
-
-      // Save active accounts to file
       await _saveResults();
     }
   }
@@ -185,7 +178,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
       try {
         final response = await http.get(url, headers: _headers).timeout(const Duration(seconds: 30));
-
         semaphore.release();
 
         if (response.statusCode == 404) {
@@ -201,14 +193,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             return {'status': 'AVAILABLE', 'message': username};
           }
         } else {
-          // Exponential backoff with jitter
           delay = min(_maxDelay.toDouble(), delay * 2 + Random().nextDouble());
           retryCount++;
           await Future.delayed(Duration(seconds: delay.toInt()));
         }
       } catch (e) {
         semaphore.release();
-        // Exponential backoff with jitter
         delay = min(_maxDelay.toDouble(), delay * 2 + Random().nextDouble());
         retryCount++;
         await Future.delayed(Duration(seconds: delay.toInt()));
@@ -248,90 +238,92 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (_activeAccounts.isEmpty) return;
 
     final directory = await getApplicationDocumentsDirectory();
-    // File naming logic: final_{name}.json
     final fileName = "final_$_inputFileName.json";
     final file = File('${directory.path}/$fileName');
 
     await file.writeAsString(jsonEncode(_activeAccounts));
 
-    // Show success message
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Active accounts saved to ${file.path}'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Active accounts saved to ${file.path}'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 
   Future<void> _downloadResults() async {
     if (_activeAccounts.isEmpty) return;
 
-    // Request storage permission
     var status = await Permission.storage.status;
     if (!status.isGranted) {
       status = await Permission.storage.request();
       if (!status.isGranted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Storage permission is required to save files'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Storage permission is required to save files'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
         return;
       }
     }
 
     try {
-      // Get the Downloads directory
       Directory downloadsDir = Directory('/storage/emulated/0/Download');
       if (!await downloadsDir.exists()) {
         downloadsDir = await getExternalStorageDirectory() ?? Directory('/storage/emulated/0/Download');
       }
 
-      // Create insta_saver folder if it doesn't exist
       Directory saveDir = Directory('${downloadsDir.path}/insta_saver');
       if (!await saveDir.exists()) {
         await saveDir.create(recursive: true);
       }
 
-      // File naming logic: final_{name}.json
       final fileName = "final_$_inputFileName.json";
       final file = File('${saveDir.path}/$fileName');
 
       await file.writeAsString(jsonEncode(_activeAccounts));
 
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Active accounts saved to ${file.path}'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Active accounts saved to ${file.path}'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error saving file: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving file: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   Future<void> _convertJsonToExcel() async {
     if (_jsonFile == null) return;
 
-    // Request storage permission
     var status = await Permission.storage.status;
     if (!status.isGranted) {
       status = await Permission.storage.request();
       if (!status.isGranted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Storage permission is required to save files'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Storage permission is required to save files'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
         return;
       }
     }
@@ -340,20 +332,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final content = await _jsonFile!.readAsString();
       final List<dynamic> data = jsonDecode(content);
 
-      // Create Excel workbook
       final excelFile = excel.Excel.createExcel();
       final sheetObject = excelFile['Sheet1'];
 
-      // Add headers
       sheetObject.cell(excel.CellIndex.indexByString('A1')).value = excel.TextCellValue('Username');
       sheetObject.cell(excel.CellIndex.indexByString('B1')).value = excel.TextCellValue('Password');
       sheetObject.cell(excel.CellIndex.indexByString('C1')).value = excel.TextCellValue('Authcode');
       sheetObject.cell(excel.CellIndex.indexByString('D1')).value = excel.TextCellValue('Email');
 
-      // Add data
       for (int i = 0; i < data.length; i++) {
         final item = data[i];
-        final rowIndex = i + 2; // Start from row 2 (after headers)
+        final rowIndex = i + 2;
 
         sheetObject.cell(excel.CellIndex.indexByString('A$rowIndex')).value = excel.TextCellValue(item['username']?.toString() ?? '');
         sheetObject.cell(excel.CellIndex.indexByString('B$rowIndex')).value = excel.TextCellValue(item['password']?.toString() ?? '');
@@ -361,45 +350,44 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         sheetObject.cell(excel.CellIndex.indexByString('D$rowIndex')).value = excel.TextCellValue(item['email']?.toString() ?? '');
       }
 
-      // Get the Downloads directory
       Directory downloadsDir = Directory('/storage/emulated/0/Download');
       if (!await downloadsDir.exists()) {
         downloadsDir = await getExternalStorageDirectory() ?? Directory('/storage/emulated/0/Download');
       }
 
-      // Create insta_saver folder if it doesn't exist
       Directory saveDir = Directory('${downloadsDir.path}/insta_saver');
       if (!await saveDir.exists()) {
         await saveDir.create(recursive: true);
       }
 
-      // File naming logic: {name}.xlsx (same name as input file but with .xlsx extension)
       String path = _jsonFile!.path;
       String baseName = path.split('/').last.split('.').first;
       final fileName = "$baseName.xlsx";
       final file = File('${saveDir.path}/$fileName');
 
-      // Write the file
       final List<int>? bytes = excelFile.save();
       if (bytes != null) {
         await file.writeAsBytes(bytes);
       }
 
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Excel file saved to ${file.path}'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Excel file saved to ${file.path}'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error converting file: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error converting file: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -415,8 +403,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Row(
-          children: const [
+        title: const Row(
+          children: [
             Icon(Icons.camera_alt, color: Colors.white),
             SizedBox(width: 8),
             Text('Instagram Username Checker'),
@@ -458,8 +446,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: const [
+                  const Row(
+                    children: [
                       Icon(Icons.file_upload, color: Colors.indigo),
                       SizedBox(width: 8),
                       Text(
@@ -519,8 +507,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: const [
+                  const Row(
+                    children: [
                       Icon(Icons.keyboard, color: Colors.indigo),
                       SizedBox(width: 8),
                       Text(
@@ -582,8 +570,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: const [
+                  const Row(
+                    children: [
                       Icon(Icons.table_chart, color: Colors.indigo),
                       SizedBox(width: 8),
                       Text(
@@ -637,8 +625,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: const [
+            const Row(
+              children: [
                 Icon(Icons.bar_chart, color: Colors.indigo),
                 SizedBox(width: 8),
                 Text(
@@ -757,7 +745,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildResultsSection() {
     if (_results.isEmpty) return const SizedBox();
 
-    // Group results by status
     final activeResults = _results.where((r) => r['status'] == 'ACTIVE').toList();
     final availableResults = _results.where((r) => r['status'] == 'AVAILABLE').toList();
     final errorResults = _results.where((r) => r['status'] == 'ERROR').toList();
@@ -770,8 +757,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: const [
+            const Row(
+              children: [
                 Icon(Icons.list_alt, color: Colors.indigo),
                 SizedBox(width: 8),
                 Text(
@@ -805,8 +792,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.person, size: 16),
-                                SizedBox(width: 4),
+                                const Icon(Icons.person, size: 16),
+                                const SizedBox(width: 4),
                                 Text('Active (${activeResults.length})'),
                               ],
                             ),
@@ -815,8 +802,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.person_add, size: 16),
-                                SizedBox(width: 4),
+                                const Icon(Icons.person_add, size: 16),
+                                const SizedBox(width: 4),
                                 Text('Available (${availableResults.length})'),
                               ],
                             ),
@@ -825,8 +812,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.warning, size: 16),
-                                SizedBox(width: 4),
+                                const Icon(Icons.warning, size: 16),
+                                const SizedBox(width: 4),
                                 Text('Error (${errorResults.length})'),
                               ],
                             ),
@@ -967,3 +954,4 @@ class Semaphore {
       _current--;
     }
   }
+}
