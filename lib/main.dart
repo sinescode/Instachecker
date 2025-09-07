@@ -8,7 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:excel/excel.dart' as excel;
+import 'package:excel/excel.dart';
 
 void main() {
   runApp(const InstagramUsernameChecker());
@@ -285,24 +285,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final List<dynamic> data = jsonDecode(content);
       
       // Create Excel workbook
-      final excel.Excel excel = excel.Excel.createExcel();
-      final excel.Sheet sheetObject = excel['Sheet1'];
+      final excel = Excel.createExcel();
+      final sheetObject = excel['Sheet1'];
       
-      // Add headers using the correct CellValue format
-      sheetObject.cell(excel.CellIndex.indexByString('A1')).value = excel.TextCellValue('Username');
-      sheetObject.cell(excel.CellIndex.indexByString('B1')).value = excel.TextCellValue('Password');
-      sheetObject.cell(excel.CellIndex.indexByString('C1')).value = excel.TextCellValue('Authcode');
-      sheetObject.cell(excel.CellIndex.indexByString('D1')).value = excel.TextCellValue('Email');
+      // Add headers
+      sheetObject.cell(CellIndex.indexByString('A1')).value = 'Username';
+      sheetObject.cell(CellIndex.indexByString('B1')).value = 'Password';
+      sheetObject.cell(CellIndex.indexByString('C1')).value = 'Authcode';
+      sheetObject.cell(CellIndex.indexByString('D1')).value = 'Email';
       
       // Add data
       for (int i = 0; i < data.length; i++) {
         final item = data[i];
         final rowIndex = i + 2; // Start from row 2 (after headers)
         
-        sheetObject.cell(excel.CellIndex.indexByString('A$rowIndex')).value = excel.TextCellValue(item['username']?.toString() ?? '');
-        sheetObject.cell(excel.CellIndex.indexByString('B$rowIndex')).value = excel.TextCellValue(item['password']?.toString() ?? '');
-        sheetObject.cell(excel.CellIndex.indexByString('C$rowIndex')).value = excel.TextCellValue(item['auth_code']?.toString() ?? '');
-        sheetObject.cell(excel.CellIndex.indexByString('D$rowIndex')).value = excel.TextCellValue(item['email']?.toString() ?? '');
+        sheetObject.cell(CellIndex.indexByString('A$rowIndex')).value = item['username']?.toString() ?? '';
+        sheetObject.cell(CellIndex.indexByString('B$rowIndex')).value = item['password']?.toString() ?? '';
+        sheetObject.cell(CellIndex.indexByString('C$rowIndex')).value = item['auth_code']?.toString() ?? '';
+        sheetObject.cell(CellIndex.indexByString('D$rowIndex')).value = item['email']?.toString() ?? '';
       }
       
       // Save file
@@ -656,12 +656,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(8),
-        // Use BoxBorder instead of Border to avoid conflict
-        border: BoxBorder(
-          top: BorderSide(color: textColor.withOpacity(0.2)),
-          bottom: BorderSide(color: textColor.withOpacity(0.2)),
-          left: BorderSide(color: textColor.withOpacity(0.2)),
-          right: BorderSide(color: textColor.withOpacity(0.2)),
+        border: Border.all(
+          color: textColor.withOpacity(0.2),
         ),
       ),
       child: Column(
