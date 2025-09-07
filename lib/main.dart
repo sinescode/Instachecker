@@ -24,6 +24,15 @@ class InstagramUsernameChecker extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.indigo,
         fontFamily: 'Roboto',
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            foregroundColor: Colors.white,
+            textStyle: const TextStyle(fontWeight: FontWeight.w600),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
       ),
       home: const HomePage(),
       debugShowCheckedModeBanner: false,
@@ -273,9 +282,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
 
     try {
-      Directory downloadsDir = Directory('/storage/emulated/0/Download');
-      if (!await downloadsDir.exists()) {
-        downloadsDir = await getExternalStorageDirectory() ?? Directory('/storage/emulated/0/Download');
+      Directory? downloadsDir = await getDownloadsDirectory();
+      if (downloadsDir == null) {
+        downloadsDir = await getExternalStorageDirectory();
+      }
+      if (downloadsDir == null) {
+        downloadsDir = Directory('/storage/emulated/0/Download');
       }
 
       Directory saveDir = Directory('${downloadsDir.path}/insta_saver');
@@ -350,9 +362,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         sheetObject.cell(excel.CellIndex.indexByString('D$rowIndex')).value = excel.TextCellValue(item['email']?.toString() ?? '');
       }
 
-      Directory downloadsDir = Directory('/storage/emulated/0/Download');
-      if (!await downloadsDir.exists()) {
-        downloadsDir = await getExternalStorageDirectory() ?? Directory('/storage/emulated/0/Download');
+      Directory? downloadsDir = await getDownloadsDirectory();
+      if (downloadsDir == null) {
+        downloadsDir = await getExternalStorageDirectory();
+      }
+      if (downloadsDir == null) {
+        downloadsDir = Directory('/storage/emulated/0/Download');
       }
 
       Directory saveDir = Directory('${downloadsDir.path}/insta_saver');
@@ -468,6 +483,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     label: Text(_pickedFile == null ? 'Select File' : _pickedFile!.path.split('/').last),
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 50),
+                      backgroundColor: Colors.indigo,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -592,6 +608,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     label: Text(_jsonFile == null ? 'Select JSON File' : _jsonFile!.path.split('/').last),
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 50),
+                      backgroundColor: Colors.indigo,
                     ),
                   ),
                   const SizedBox(height: 16),
