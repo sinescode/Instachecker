@@ -11,13 +11,6 @@ class ExcelService {
     for (int i = 0; i < headers.length; i++) {
       var cell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
       cell.value = TextCellValue(headers[i]);
-      
-      // Apply cell style directly without Font object
-      cell.cellStyle = CellStyle(
-        bold: true,
-        fontColorHex: "#FFFFFF",  // Use fontColorHex instead of Font
-        backgroundColorHex: '#4F81BD',
-      );
     }
 
     // Add data rows
