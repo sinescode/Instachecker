@@ -1,5 +1,5 @@
+// services/excel_service.dart
 import 'package:excel/excel.dart';
-import 'package:flutter/material.dart'; // Added import for Colors
 
 class ExcelService {
   Future<List<int>?> convertJsonToExcel(List<dynamic> data) async {
@@ -10,15 +10,16 @@ class ExcelService {
     List<String> headers = ['Username', 'Password', 'Auth Code', 'Email'];
     for (int i = 0; i < headers.length; i++) {
       var cell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
-      cell.value = headers[i];
+      cell.value = TextCellValue(headers[i]); // Use TextCellValue for strings
       
       // Create a font with white color
-      var font = Font(colorHex: "#FFFFFF");
+      var font = Font()
+        ..colorHex = "#FFFFFF"; // Use property assignment instead of constructor parameter
       
       // Apply cell style with the font
       cell.cellStyle = CellStyle(
         bold: true,
-        font: font, // Use the font object instead of fontColor
+        font: font,
         backgroundColorHex: '#4F81BD',
       );
     }
@@ -28,16 +29,16 @@ class ExcelService {
       final item = data[i];
       
       var usernameCell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1));
-      usernameCell.value = item['username']?.toString() ?? '';
+      usernameCell.value = TextCellValue(item['username']?.toString() ?? ''); // Use TextCellValue
       
       var passwordCell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1));
-      passwordCell.value = item['password']?.toString() ?? '';
+      passwordCell.value = TextCellValue(item['password']?.toString() ?? ''); // Use TextCellValue
       
       var authCodeCell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1));
-      authCodeCell.value = item['auth_code']?.toString() ?? '';
+      authCodeCell.value = TextCellValue(item['auth_code']?.toString() ?? ''); // Use TextCellValue
       
       var emailCell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1));
-      emailCell.value = item['email']?.toString() ?? '';
+      emailCell.value = TextCellValue(item['email']?.toString() ?? ''); // Use TextCellValue
     }
 
     // Auto-size columns
