@@ -8,7 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:excel/excel.dart';
+import 'package:excel/excel.dart' as excel;
 
 void main() {
   runApp(const InstagramUsernameChecker());
@@ -53,7 +53,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   File? _pickedFile;
   File? _jsonFile;
   String _inputFileName = "usernames"; // Default name for text input
-  
+
   // Configuration
   static const int _maxRetries = 10;
   static const int _initialDelay = 1;
@@ -112,10 +112,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Future<void> _uploadFile() async {
     if (_pickedFile == null) return;
-    
+
     final content = await _pickedFile!.readAsString();
     List<String> usernames = [];
-    
+
     if (_pickedFile!.path.endsWith('.json')) {
       final List<dynamic> data = jsonDecode(content);
       for (var entry in data) {
@@ -126,19 +126,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     } else {
       usernames = content.split('\n').where((line) => line.trim().isNotEmpty).toList();
     }
-    
+
     _startProcessing(usernames);
   }
 
   Future<void> _uploadText() async {
     final text = _textController.text;
     if (text.trim().isEmpty) return;
-    
+
     // For text input, use default filename
     setState(() {
       _inputFileName = "usernames";
     });
-    
+
     final usernames = text.split('\n').where((line) => line.trim().isNotEmpty).toList();
     _startProcessing(usernames);
   }
@@ -158,16 +158,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     // Create a semaphore to limit concurrent requests
     final semaphore = Semaphore(_concurrentLimit);
-    
+
     // Process all usernames
     final futures = usernames.map((username) => _checkUsername(username, semaphore));
     final results = await Future.wait(futures);
-    
+
     if (!_isCancelled) {
       setState(() {
         _isProcessing = false;
       });
-      
+
       // Save active accounts to file
       await _saveResults();
     }
@@ -175,19 +175,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Future<Map<String, dynamic>> _checkUsername(String username, Semaphore semaphore) async {
     if (_isCancelled) return {'status': 'CANCELLED', 'message': 'Processing cancelled'};
-    
+
     final url = Uri.parse('https://i.instagram.com/api/v1/users/web_profile_info/?username=$username');
     int retryCount = 0;
     double delay = _initialDelay.toDouble();
-    
+
     while (retryCount < _maxRetries && !_isCancelled) {
       await semaphore.acquire();
-      
+
       try {
         final response = await http.get(url, headers: _headers).timeout(const Duration(seconds: 30));
-        
+
         semaphore.release();
-        
+
         if (response.statusCode == 404) {
           _updateCounts('AVAILABLE', username);
           return {'status': 'AVAILABLE', 'message': '[AVAILABLE] $username'};
@@ -214,19 +214,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         await Future.delayed(Duration(seconds: delay.toInt()));
       }
     }
-    
+
     if (_isCancelled) return {'status': 'CANCELLED', 'message': 'Processing cancelled'};
-    
+
     _updateCounts('ERROR', username);
     return {'status': 'ERROR', 'message': '[ERROR] $username - Max retries exceeded'};
   }
 
   void _updateCounts(String status, String username) {
     if (_isCancelled) return;
-    
+
     setState(() {
       _processedCount++;
-      
+
       switch (status) {
         case 'ACTIVE':
           _activeCount++;
@@ -239,21 +239,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           _errorCount++;
           break;
       }
-      
+
       _results.add('[${status.toUpperCase()}] $username');
     });
   }
 
   Future<void> _saveResults() async {
     if (_activeAccounts.isEmpty) return;
-    
+
     final directory = await getApplicationDocumentsDirectory();
     // File naming logic: final_{name}.json
     final fileName = "final_$_inputFileName.json";
     final file = File('${directory.path}/$fileName');
-    
+
     await file.writeAsString(jsonEncode(_activeAccounts));
-    
+
     // Show success message
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -265,46 +265,46 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Future<void> _downloadResults() async {
     if (_activeAccounts.isEmpty) return;
-    
+
     final directory = await getApplicationDocumentsDirectory();
     // File naming logic: final_{name}.json
     final fileName = "final_$_inputFileName.json";
     final file = File('${directory.path}/$fileName');
-    
+
     await file.writeAsString(jsonEncode(_activeAccounts));
-    
+
     // Share the file
     await Share.shareXFiles([XFile(file.path)], text: 'Active Instagram Accounts');
   }
 
   Future<void> _convertJsonToExcel() async {
     if (_jsonFile == null) return;
-    
+
     try {
       final content = await _jsonFile!.readAsString();
       final List<dynamic> data = jsonDecode(content);
-      
+
       // Create Excel workbook
-      final excel = Excel.createExcel();
-      final sheetObject = excel['Sheet1'];
-      
+      final excelFile = excel.Excel.createExcel();
+      final sheetObject = excelFile['Sheet1'];
+
       // Add headers
-      sheetObject.cell(CellIndex.indexByString('A1')).value = 'Username';
-      sheetObject.cell(CellIndex.indexByString('B1')).value = 'Password';
-      sheetObject.cell(CellIndex.indexByString('C1')).value = 'Authcode';
-      sheetObject.cell(CellIndex.indexByString('D1')).value = 'Email';
-      
+      sheetObject.cell(excel.CellIndex.indexByString('A1')).value = excel.TextCellValue('Username');
+      sheetObject.cell(excel.CellIndex.indexByString('B1')).value = excel.TextCellValue('Password');
+      sheetObject.cell(excel.CellIndex.indexByString('C1')).value = excel.TextCellValue('Authcode');
+      sheetObject.cell(excel.CellIndex.indexByString('D1')).value = excel.TextCellValue('Email');
+
       // Add data
       for (int i = 0; i < data.length; i++) {
         final item = data[i];
         final rowIndex = i + 2; // Start from row 2 (after headers)
-        
-        sheetObject.cell(CellIndex.indexByString('A$rowIndex')).value = item['username']?.toString() ?? '';
-        sheetObject.cell(CellIndex.indexByString('B$rowIndex')).value = item['password']?.toString() ?? '';
-        sheetObject.cell(CellIndex.indexByString('C$rowIndex')).value = item['auth_code']?.toString() ?? '';
-        sheetObject.cell(CellIndex.indexByString('D$rowIndex')).value = item['email']?.toString() ?? '';
+
+        sheetObject.cell(excel.CellIndex.indexByString('A$rowIndex')).value = excel.TextCellValue(item['username']?.toString() ?? '');
+        sheetObject.cell(excel.CellIndex.indexByString('B$rowIndex')).value = excel.TextCellValue(item['password']?.toString() ?? '');
+        sheetObject.cell(excel.CellIndex.indexByString('C$rowIndex')).value = excel.TextCellValue(item['auth_code']?.toString() ?? '');
+        sheetObject.cell(excel.CellIndex.indexByString('D$rowIndex')).value = excel.TextCellValue(item['email']?.toString() ?? '');
       }
-      
+
       // Save file
       final directory = await getApplicationDocumentsDirectory();
       // File naming logic: {name}.xlsx (same name as input file but with .xlsx extension)
@@ -312,13 +312,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       String baseName = path.split('/').last.split('.').first;
       final fileName = "$baseName.xlsx";
       final file = File('${directory.path}/$fileName');
-      
+
       // Write the file
-      final List<int>? bytes = excel.save();
+      final List<int>? bytes = excelFile.save();
       if (bytes != null) {
         await file.writeAsBytes(bytes);
       }
-      
+
       // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -326,7 +326,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           backgroundColor: Colors.green,
         ),
       );
-      
+
       // Share the file
       await Share.shareXFiles([XFile(file.path)], text: 'Converted Excel File');
     } catch (e) {
@@ -564,7 +564,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Widget _buildProgressSection() {
     if (!_isProcessing && _processedCount == 0) return const SizedBox();
-    
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -692,7 +692,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Widget _buildResultsSection() {
     if (_results.isEmpty) return const SizedBox();
-    
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -719,7 +719,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 itemBuilder: (context, index) {
                   final result = _results[index];
                   Color textColor = Colors.black;
-                  
+
                   if (result.startsWith('[ACTIVE]')) {
                     textColor = Colors.red[700]!;
                   } else if (result.startsWith('[AVAILABLE]')) {
@@ -727,7 +727,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   } else if (result.startsWith('[ERROR]')) {
                     textColor = Colors.yellow[700]!;
                   }
-                  
+
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4.0),
                     child: Text(
@@ -749,20 +749,20 @@ class Semaphore {
   final int maxConcurrent;
   int _current = 0;
   final List<Completer<void>> _waiters = [];
-  
+
   Semaphore(this.maxConcurrent);
-  
+
   Future<void> acquire() async {
     if (_current < maxConcurrent) {
       _current++;
       return;
     }
-    
+
     final completer = Completer<void>();
     _waiters.add(completer);
     await completer.future;
   }
-  
+
   void release() {
     if (_waiters.isNotEmpty) {
       final completer = _waiters.removeAt(0);
