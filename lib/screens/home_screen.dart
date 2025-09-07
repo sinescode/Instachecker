@@ -28,6 +28,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     cancelledCount: 0,
     totalCount: 0,
   );
+  
+  // Track the imported filename
+  String _importedFilename = 'imported_accounts.json';
 
   @override
   void initState() {
@@ -52,7 +55,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _usernameService.statusStream.listen((status) {
       setState(() {
         _statusUpdates.insert(0, status);
-        // Keep only last 50 status updates to prevent memory issues
         if (_statusUpdates.length > 50) {
           _statusUpdates = _statusUpdates.take(50).toList();
         }
@@ -60,8 +62,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
   }
 
-  void _startProcessing(List<AccountModel> accounts) {
+  // Update this method to accept the actual imported filename
+  void _startProcessing(List<AccountModel> accounts, {String filename = 'imported_accounts.json'}) {
     setState(() {
+      _importedFilename = filename; // Store the actual imported filename
       _results.clear();
       _statusUpdates.clear();
       _stats = ProcessingStats(
@@ -166,8 +170,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         child: TabBarView(
                           controller: _tabController,
                           children: [
-                            FileUploadTab(onStartProcessing: _startProcessing),
-                            TextInputTab(onStartProcessing: _startProcessing),
+                            FileUploadTab(
+                              onStartProcessing: (accounts, filename) => _startProcessing(accounts, filename: filename),
+                            ),
+                            TextInputTab(
+                              onStartProcessing: (accounts, filename) => _startProcessing(accounts, filename: filename),
+                            ),
                             const JsonToExcelTab(),
                           ],
                         ),
@@ -182,6 +190,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           isCompleted: _usernameService.isCompleted,
                           onCancel: _cancelProcessing,
                           activeAccounts: _usernameService.getActiveAccounts(),
+                          originalFilename: _importedFilename, // Pass the actual imported filename
                         ),
                       ],
                       

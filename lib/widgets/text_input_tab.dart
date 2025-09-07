@@ -3,7 +3,7 @@ import '../services/file_service.dart';
 import '../models/account_model.dart';
 
 class TextInputTab extends StatefulWidget {
-  final Function(List<AccountModel>) onStartProcessing;
+  final Function(List<AccountModel>, String) onStartProcessing; // Changed to accept filename
 
   const TextInputTab({
     super.key,
@@ -41,7 +41,11 @@ class _TextInputTabState extends State<TextInputTab> {
       return;
     }
 
-    widget.onStartProcessing(accounts);
+    // Generate filename with timestamp
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final filename = 'text_input_$timestamp.json';
+    
+    widget.onStartProcessing(accounts, filename); // Pass both accounts and filename
   }
 
   @override

@@ -3,7 +3,7 @@ import '../services/file_service.dart';
 import '../models/account_model.dart';
 
 class FileUploadTab extends StatefulWidget {
-  final Function(List<AccountModel>) onStartProcessing;
+  final Function(List<AccountModel>, String) onStartProcessing; // Changed to accept filename
 
   const FileUploadTab({
     super.key,
@@ -25,11 +25,11 @@ class _FileUploadTabState extends State<FileUploadTab> {
     });
 
     try {
-      final accounts = await FileService.pickAndParseFile();
-      if (accounts.isNotEmpty) {
+      final result = await FileService.pickAndParseFile();
+      if (result.accounts.isNotEmpty) {
         setState(() {
-          _selectedAccounts = accounts;
-          _selectedFileName = 'Selected ${accounts.length} usernames';
+          _selectedAccounts = result.accounts;
+          _selectedFileName = result.fileName; // Get the actual filename
         });
       } else {
         _showSnackBar('No valid usernames found in the file', Colors.orange);
@@ -59,7 +59,7 @@ class _FileUploadTabState extends State<FileUploadTab> {
       _showSnackBar('Please select a file first', Colors.orange);
       return;
     }
-    widget.onStartProcessing(_selectedAccounts);
+    widget.onStartProcessing(_selectedAccounts, _selectedFileName!); // Pass filename
   }
 
   @override
@@ -136,12 +136,25 @@ class _FileUploadTabState extends State<FileUploadTab> {
                             ? FontWeight.w500
                             : FontWeight.normal,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
             ),
           ),
+          
+          if (_selectedFileName != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${_selectedAccounts.length} usernames loaded',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.green[600],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
           
           const SizedBox(height: 20),
           
