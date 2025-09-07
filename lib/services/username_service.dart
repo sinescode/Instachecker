@@ -128,7 +128,7 @@ class UsernameService {
             return;
           }
         } else {
-          // Retry logic
+          // Retry logic - FIXED: Use maxDelay.toDouble() instead of maxDelay
           delay = min(maxDelay.toDouble(), delay * 2 + Random().nextDouble());
           retryCount++;
           final statusMsg = '[RETRY $retryCount/$maxRetries] ${account.username} - Status: ${response.statusCode}, Waiting: ${delay.toStringAsFixed(2)}s';
@@ -136,7 +136,8 @@ class UsernameService {
           await Future.delayed(Duration(milliseconds: (delay * 1000).round()));
         }
       } catch (e) {
-        delay = min(maxDelay, delay * 2 + Random().nextDouble());
+        // FIXED: Use maxDelay.toDouble() instead of maxDelay
+        delay = min(maxDelay.toDouble(), delay * 2 + Random().nextDouble());
         retryCount++;
         final statusMsg = '[RETRY $retryCount/$maxRetries] ${account.username} - Exception: $e, Waiting: ${delay.toStringAsFixed(2)}s';
         _statusController.add(statusMsg);
