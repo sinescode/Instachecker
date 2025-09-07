@@ -10,16 +10,12 @@ class ExcelService {
     List<String> headers = ['Username', 'Password', 'Auth Code', 'Email'];
     for (int i = 0; i < headers.length; i++) {
       var cell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
-      cell.value = TextCellValue(headers[i]); // Use TextCellValue for strings
+      cell.value = TextCellValue(headers[i]);
       
-      // Create a font with white color
-      var font = Font()
-        ..colorHex = "#FFFFFF"; // Use property assignment instead of constructor parameter
-      
-      // Apply cell style with the font
+      // Apply cell style directly without Font object
       cell.cellStyle = CellStyle(
         bold: true,
-        font: font,
+        fontColorHex: "#FFFFFF",  // Use fontColorHex instead of Font
         backgroundColorHex: '#4F81BD',
       );
     }
@@ -29,16 +25,16 @@ class ExcelService {
       final item = data[i];
       
       var usernameCell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: i + 1));
-      usernameCell.value = TextCellValue(item['username']?.toString() ?? ''); // Use TextCellValue
+      usernameCell.value = TextCellValue(item['username']?.toString() ?? '');
       
       var passwordCell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: i + 1));
-      passwordCell.value = TextCellValue(item['password']?.toString() ?? ''); // Use TextCellValue
+      passwordCell.value = TextCellValue(item['password']?.toString() ?? '');
       
       var authCodeCell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: i + 1));
-      authCodeCell.value = TextCellValue(item['auth_code']?.toString() ?? ''); // Use TextCellValue
+      authCodeCell.value = TextCellValue(item['auth_code']?.toString() ?? '');
       
       var emailCell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: i + 1));
-      emailCell.value = TextCellValue(item['email']?.toString() ?? ''); // Use TextCellValue
+      emailCell.value = TextCellValue(item['email']?.toString() ?? '');
     }
 
     // Auto-size columns
