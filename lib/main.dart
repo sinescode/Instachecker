@@ -423,7 +423,7 @@ class _HomePageState extends State<HomePage> with TickersProviderStateMixin {
                     icon: const Icon(Icons.search),
                     label: const Text('Start Checking'),
                     style: ElevatedButton.styleFrom(
-                      primary: Colors.red[600],
+                      backgroundColor: Colors.red[600],
                       minimumSize: const Size(double.infinity, 50),
                     ),
                   ),
@@ -486,7 +486,7 @@ class _HomePageState extends State<HomePage> with TickersProviderStateMixin {
                     icon: const Icon(Icons.search),
                     label: const Text('Start Checking'),
                     style: ElevatedButton.styleFrom(
-                      primary: Colors.red[600],
+                      backgroundColor: Colors.red[600],
                       minimumSize: const Size(double.infinity, 50),
                     ),
                   ),
@@ -547,7 +547,7 @@ class _HomePageState extends State<HomePage> with TickersProviderStateMixin {
                     icon: const Icon(Icons.file_download),
                     label: const Text('Convert to Excel'),
                     style: ElevatedButton.styleFrom(
-                      primary: Colors.green[600],
+                      backgroundColor: Colors.green[600],
                       minimumSize: const Size(double.infinity, 50),
                     ),
                   ),
@@ -626,7 +626,7 @@ class _HomePageState extends State<HomePage> with TickersProviderStateMixin {
                     icon: const Icon(Icons.cancel),
                     label: const Text('Cancel'),
                     style: ElevatedButton.styleFrom(
-                      primary: Colors.red[600],
+                      backgroundColor: Colors.red[600],
                     ),
                   ),
                 ),
@@ -637,7 +637,7 @@ class _HomePageState extends State<HomePage> with TickersProviderStateMixin {
                     icon: const Icon(Icons.download),
                     label: const Text('Download'),
                     style: ElevatedButton.styleFrom(
-                      primary: Colors.green[600],
+                      backgroundColor: Colors.green[600],
                     ),
                   ),
                 ),
