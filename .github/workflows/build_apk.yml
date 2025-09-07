@@ -20,17 +20,17 @@ jobs:
     
     - uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.13.0'
+        flutter-version: '3.35.3'  # Updated to the suggested version
         channel: 'stable'
     
     - name: Get dependencies
       run: flutter pub get
     
-    - name: Build APKs (Split per ABI)
-      run: flutter build apk --release --split-per-abi
+    - name: Build APK for ARM64
+      run: flutter build apk --release --target-platform=android-arm64
     
-    - name: Upload ARM64 APK
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: release-apk-arm64
-        path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+        path: build/app/outputs/flutter-apk/app-release.apk
