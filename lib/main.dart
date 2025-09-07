@@ -7,7 +7,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:excel/excel.dart' as excel;
 
 void main() {
@@ -40,7 +40,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _results = [];
+  final List<Map<String, String>> _results = [];
   bool _isProcessing = false;
   bool _isCancelled = false;
   int _processedCount = 0;
@@ -190,15 +190,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
         if (response.statusCode == 404) {
           _updateCounts('AVAILABLE', username);
-          return {'status': 'AVAILABLE', 'message': '[AVAILABLE] $username'};
+          return {'status': 'AVAILABLE', 'message': username};
         } else if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           if (data['data']?['user'] != null) {
             _updateCounts('ACTIVE', username);
-            return {'status': 'ACTIVE', 'message': '[ACTIVE] $username'};
+            return {'status': 'ACTIVE', 'message': username};
           } else {
             _updateCounts('AVAILABLE', username);
-            return {'status': 'AVAILABLE', 'message': '[AVAILABLE] $username'};
+            return {'status': 'AVAILABLE', 'message': username};
           }
         } else {
           // Exponential backoff with jitter
@@ -218,7 +218,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (_isCancelled) return {'status': 'CANCELLED', 'message': 'Processing cancelled'};
 
     _updateCounts('ERROR', username);
-    return {'status': 'ERROR', 'message': '[ERROR] $username - Max retries exceeded'};
+    return {'status': 'ERROR', 'message': '$username - Max retries exceeded'};
   }
 
   void _updateCounts(String status, String username) {
@@ -240,7 +240,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           break;
       }
 
-      _results.add('[${status.toUpperCase()}] $username');
+      _results.add({'status': status, 'username': username});
     });
   }
 
@@ -266,19 +266,75 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _downloadResults() async {
     if (_activeAccounts.isEmpty) return;
 
-    final directory = await getApplicationDocumentsDirectory();
-    // File naming logic: final_{name}.json
-    final fileName = "final_$_inputFileName.json";
-    final file = File('${directory.path}/$fileName');
+    // Request storage permission
+    var status = await Permission.storage.status;
+    if (!status.isGranted) {
+      status = await Permission.storage.request();
+      if (!status.isGranted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Storage permission is required to save files'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
 
-    await file.writeAsString(jsonEncode(_activeAccounts));
+    try {
+      // Get the Downloads directory
+      Directory downloadsDir = Directory('/storage/emulated/0/Download');
+      if (!await downloadsDir.exists()) {
+        downloadsDir = await getExternalStorageDirectory() ?? Directory('/storage/emulated/0/Download');
+      }
 
-    // Share the file
-    await Share.shareXFiles([XFile(file.path)], text: 'Active Instagram Accounts');
+      // Create insta_saver folder if it doesn't exist
+      Directory saveDir = Directory('${downloadsDir.path}/insta_saver');
+      if (!await saveDir.exists()) {
+        await saveDir.create(recursive: true);
+      }
+
+      // File naming logic: final_{name}.json
+      final fileName = "final_$_inputFileName.json";
+      final file = File('${saveDir.path}/$fileName');
+
+      await file.writeAsString(jsonEncode(_activeAccounts));
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Active accounts saved to ${file.path}'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving file: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _convertJsonToExcel() async {
     if (_jsonFile == null) return;
+
+    // Request storage permission
+    var status = await Permission.storage.status;
+    if (!status.isGranted) {
+      status = await Permission.storage.request();
+      if (!status.isGranted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Storage permission is required to save files'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
 
     try {
       final content = await _jsonFile!.readAsString();
@@ -305,13 +361,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         sheetObject.cell(excel.CellIndex.indexByString('D$rowIndex')).value = excel.TextCellValue(item['email']?.toString() ?? '');
       }
 
-      // Save file
-      final directory = await getApplicationDocumentsDirectory();
+      // Get the Downloads directory
+      Directory downloadsDir = Directory('/storage/emulated/0/Download');
+      if (!await downloadsDir.exists()) {
+        downloadsDir = await getExternalStorageDirectory() ?? Directory('/storage/emulated/0/Download');
+      }
+
+      // Create insta_saver folder if it doesn't exist
+      Directory saveDir = Directory('${downloadsDir.path}/insta_saver');
+      if (!await saveDir.exists()) {
+        await saveDir.create(recursive: true);
+      }
+
       // File naming logic: {name}.xlsx (same name as input file but with .xlsx extension)
       String path = _jsonFile!.path;
       String baseName = path.split('/').last.split('.').first;
       final fileName = "$baseName.xlsx";
-      final file = File('${directory.path}/$fileName');
+      final file = File('${saveDir.path}/$fileName');
 
       // Write the file
       final List<int>? bytes = excelFile.save();
@@ -324,11 +390,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         SnackBar(
           content: Text('Excel file saved to ${file.path}'),
           backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
         ),
       );
-
-      // Share the file
-      await Share.shareXFiles([XFile(file.path)], text: 'Converted Excel File');
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -636,7 +700,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   child: ElevatedButton.icon(
                     onPressed: _processedCount > 0 && !_isProcessing ? _downloadResults : null,
                     icon: const Icon(Icons.download),
-                    label: const Text('Download'),
+                    label: const Text('Save to Device'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green[600],
                     ),
@@ -693,6 +757,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildResultsSection() {
     if (_results.isEmpty) return const SizedBox();
 
+    // Group results by status
+    final activeResults = _results.where((r) => r['status'] == 'ACTIVE').toList();
+    final availableResults = _results.where((r) => r['status'] == 'AVAILABLE').toList();
+    final errorResults = _results.where((r) => r['status'] == 'ERROR').toList();
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -713,35 +782,162 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
             const SizedBox(height: 16),
             SizedBox(
-              height: 300,
-              child: ListView.builder(
-                itemCount: _results.length,
-                itemBuilder: (context, index) {
-                  final result = _results[index];
-                  Color textColor = Colors.black;
-
-                  if (result.startsWith('[ACTIVE]')) {
-                    textColor = Colors.red[700]!;
-                  } else if (result.startsWith('[AVAILABLE]')) {
-                    textColor = Colors.green[700]!;
-                  } else if (result.startsWith('[ERROR]')) {
-                    textColor = Colors.yellow[700]!;
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4.0),
-                    child: Text(
-                      result,
-                      style: TextStyle(color: textColor),
+              height: 400,
+              child: DefaultTabController(
+                length: 3,
+                child: Column(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: TabBar(
+                        labelColor: Colors.white,
+                        unselectedLabelColor: Colors.grey[600],
+                        indicator: BoxDecoration(
+                          borderRadius: BorderRadius.circular(6),
+                          color: Colors.indigo,
+                        ),
+                        indicatorSize: TabBarIndicatorSize.tab,
+                        tabs: [
+                          Tab(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.person, size: 16),
+                                SizedBox(width: 4),
+                                Text('Active (${activeResults.length})'),
+                              ],
+                            ),
+                          ),
+                          Tab(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.person_add, size: 16),
+                                SizedBox(width: 4),
+                                Text('Available (${availableResults.length})'),
+                              ],
+                            ),
+                          ),
+                          Tab(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.warning, size: 16),
+                                SizedBox(width: 4),
+                                Text('Error (${errorResults.length})'),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  );
-                },
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          _buildResultsList(activeResults, Colors.red[50]!, Colors.red[700]!, Icons.person),
+                          _buildResultsList(availableResults, Colors.green[50]!, Colors.green[700]!, Icons.person_add),
+                          _buildResultsList(errorResults, Colors.amber[50]!, Colors.amber[700]!, Icons.warning),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildResultsList(List<Map<String, String>> results, Color bgColor, Color textColor, IconData icon) {
+    if (results.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 8),
+            Text(
+              'No results yet',
+              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: results.length,
+      itemBuilder: (context, index) {
+        final result = results[index];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: textColor.withOpacity(0.2)),
+          ),
+          child: ListTile(
+            leading: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: textColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(icon, color: textColor, size: 20),
+            ),
+            title: Text(
+              result['username'] ?? '',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: textColor,
+              ),
+            ),
+            subtitle: Text(
+              _getStatusDisplayText(result['status'] ?? ''),
+              style: TextStyle(
+                color: textColor.withOpacity(0.8),
+                fontSize: 12,
+              ),
+            ),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: textColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                result['status'] ?? '',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _getStatusDisplayText(String status) {
+    switch (status) {
+      case 'ACTIVE':
+        return 'Username is taken';
+      case 'AVAILABLE':
+        return 'Username is available';
+      case 'ERROR':
+        return 'Failed to check';
+      default:
+        return '';
+    }
   }
 }
 
@@ -771,4 +967,3 @@ class Semaphore {
       _current--;
     }
   }
-}
