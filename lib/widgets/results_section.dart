@@ -101,7 +101,7 @@ class _ResultItem extends StatelessWidget {
         backgroundColor = Colors.red[50]!;
         textColor = Colors.red[700]!;
         borderColor = Colors.red[100]!;
-        icon = Icons.person_check;
+        icon = Icons.check_circle;
         break;
       case 'AVAILABLE':
         backgroundColor = Colors.green[50]!;

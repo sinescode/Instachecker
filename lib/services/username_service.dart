@@ -129,7 +129,7 @@ class UsernameService {
           }
         } else {
           // Retry logic
-          delay = min(maxDelay, delay * 2 + Random().nextDouble());
+          delay = min(maxDelay.toDouble(), delay * 2 + Random().nextDouble());
           retryCount++;
           final statusMsg = '[RETRY $retryCount/$maxRetries] ${account.username} - Status: ${response.statusCode}, Waiting: ${delay.toStringAsFixed(2)}s';
           _statusController.add(statusMsg);
