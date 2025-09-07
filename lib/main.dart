@@ -3,11 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:excel/excel.dart' as excel;
+import 'package:excel/excel.dart';
 
 void main() {
   runApp(const InstagramUsernameChecker());
@@ -37,7 +38,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with TickersProviderStateMixin {
+class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late TabController _tabController;
   final List<String> _results = [];
   bool _isProcessing = false;
@@ -273,7 +274,7 @@ class _HomePageState extends State<HomePage> with TickersProviderStateMixin {
     await file.writeAsString(jsonEncode(_activeAccounts));
     
     // Share the file
-    await Share.shareFiles([file.path], text: 'Active Instagram Accounts');
+    await Share.shareXFiles([XFile(file.path)], text: 'Active Instagram Accounts');
   }
 
   Future<void> _convertJsonToExcel() async {
@@ -284,24 +285,24 @@ class _HomePageState extends State<HomePage> with TickersProviderStateMixin {
       final List<dynamic> data = jsonDecode(content);
       
       // Create Excel workbook
-      final excel.Workbook workbook = excel.Workbook();
-      final excel.Worksheet sheet = workbook.worksheets[0];
+      final Excel excel = Excel.createExcel();
+      final Sheet sheet = excel['Sheet1'];
       
       // Add headers
-      sheet.cell(excel.CellIndex.indexByString('A1')).value = 'Username';
-      sheet.cell(excel.CellIndex.indexByString('B1')).value = 'Password';
-      sheet.cell(excel.CellIndex.indexByString('C1')).value = 'Authcode';
-      sheet.cell(excel.CellIndex.indexByString('D1')).value = 'Email';
+      sheet.cell(CellIndex.indexByString('A1')).value = 'Username';
+      sheet.cell(CellIndex.indexByString('B1')).value = 'Password';
+      sheet.cell(CellIndex.indexByString('C1')).value = 'Authcode';
+      sheet.cell(CellIndex.indexByString('D1')).value = 'Email';
       
       // Add data
       for (int i = 0; i < data.length; i++) {
         final item = data[i];
         final rowIndex = i + 2; // Start from row 2 (after headers)
         
-        sheet.cell(excel.CellIndex.indexByString('A$rowIndex')).value = item['username'] ?? '';
-        sheet.cell(excel.CellIndex.indexByString('B$rowIndex')).value = item['password'] ?? '';
-        sheet.cell(excel.CellIndex.indexByString('C$rowIndex')).value = item['auth_code'] ?? '';
-        sheet.cell(excel.CellIndex.indexByString('D$rowIndex')).value = item['email'] ?? '';
+        sheet.cell(CellIndex.indexByString('A$rowIndex')).value = item['username'] ?? '';
+        sheet.cell(CellIndex.indexByString('B$rowIndex')).value = item['password'] ?? '';
+        sheet.cell(CellIndex.indexByString('C$rowIndex')).value = item['auth_code'] ?? '';
+        sheet.cell(CellIndex.indexByString('D$rowIndex')).value = item['email'] ?? '';
       }
       
       // Save file
@@ -313,10 +314,10 @@ class _HomePageState extends State<HomePage> with TickersProviderStateMixin {
       final file = File('${directory.path}/$fileName');
       
       // Write the file
-      final List<int> bytes = workbook.save();
-      workbook.dispose();
-      
-      await file.writeAsBytes(bytes);
+      final List<int>? bytes = excel.save();
+      if (bytes != null) {
+        await file.writeAsBytes(bytes);
+      }
       
       // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
@@ -327,7 +328,7 @@ class _HomePageState extends State<HomePage> with TickersProviderStateMixin {
       );
       
       // Share the file
-      await Share.shareFiles([file.path], text: 'Converted Excel File');
+      await Share.shareXFiles([XFile(file.path)], text: 'Converted Excel File');
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
