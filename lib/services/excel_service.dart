@@ -1,5 +1,5 @@
-// services/excel_service.dart
 import 'package:excel/excel.dart';
+import 'package:flutter/material.dart'; // Added import for Colors
 
 class ExcelService {
   Future<List<int>?> convertJsonToExcel(List<dynamic> data) async {
@@ -11,9 +11,14 @@ class ExcelService {
     for (int i = 0; i < headers.length; i++) {
       var cell = sheetObject.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
       cell.value = headers[i];
+      
+      // Create a font with white color
+      var font = Font(colorHex: "#FFFFFF");
+      
+      // Apply cell style with the font
       cell.cellStyle = CellStyle(
         bold: true,
-        fontColor: Colors.white,
+        font: font, // Use the font object instead of fontColor
         backgroundColorHex: '#4F81BD',
       );
     }

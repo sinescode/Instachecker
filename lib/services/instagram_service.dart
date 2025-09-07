@@ -1,5 +1,5 @@
-// services/instagram_service.dart
 import 'dart:async';
+import 'dart:convert'; // Added missing import
 import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:http/retry.dart';
@@ -42,7 +42,7 @@ class InstagramService {
           'username': username,
         };
       } else if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = jsonDecode(response.body); // Now this will work
         if (data['data'] != null && data['data']['user'] != null) {
           return {
             'status': 'ACTIVE',
