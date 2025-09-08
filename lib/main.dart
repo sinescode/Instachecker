@@ -81,9 +81,9 @@ class _MainScreenState extends State<MainScreen> {
 
   // Processing Configuration
   final int maxRetries = 10;
-  final int initialDelay = 1000;
-  final int maxDelay = 60000;
-  final int concurrentLimit = 5; // Reduced for better stability
+  final int initialDelay = 1000; // milliseconds
+  final int maxDelay = 60000; // milliseconds
+  final int concurrentLimit = 5; // Number of concurrent requests
 
   // State Variables
   PlatformFile? _selectedFile;
@@ -288,14 +288,14 @@ class _MainScreenState extends State<MainScreen> {
     try {
       await task();
     } finally {
-      _semaphore!.release();
+      await _semaphore!.release();
     }
   }
 
   Future<void> _checkUsername(http.Client client, String username) async {
     final url = Uri.parse('https://i.instagram.com/api/v1/users/web_profile_info/?username=$username');
     int retryCount = 0;
-    int delayMs = initialDelay;
+    double delayMs = initialDelay.toDouble();
 
     while (retryCount < maxRetries) {
       if (_canceller!.isCompleted) {
@@ -315,8 +315,8 @@ class _MainScreenState extends State<MainScreen> {
           return;
         } else if (code == 200) {
           try {
-            final json = jsonDecode(response.body);
-            final hasUser = json['data']?['user'] != null;
+            final jsonBody = jsonDecode(response.body);
+            final hasUser = jsonBody['data']?['user'] != null;
             
             if (hasUser) {
               _updateResult('ACTIVE', '$username - Active', username);
@@ -332,15 +332,19 @@ class _MainScreenState extends State<MainScreen> {
           }
           return;
         } else if (code == 429) {
-          // Rate limited, wait longer
-          delayMs = min(maxDelay, delayMs * 3);
+          // Rate limited: increase backoff
+          delayMs = min(maxDelay.toDouble(), delayMs * 2 + Random().nextInt(1000));
           retryCount++;
-          _updateStatus('Rate limited for $username, waiting ${delayMs}ms...', username);
+          _updateStatus('Rate limited for $username, waiting ${delayMs.toInt()}ms...', username);
         } else {
+          // Other unexpected statuses: backoff + retry
+          delayMs = min(maxDelay.toDouble(), delayMs * 2 + Random().nextInt(1000));
           retryCount++;
           _updateStatus('Retry $retryCount/$maxRetries for $username (Status: $code)', username);
         }
       } catch (e) {
+        // network/timeout/etc -> backoff + retry
+        delayMs = min(maxDelay.toDouble(), delayMs * 2 + Random().nextInt(1000));
         retryCount++;
         final errorMsg = e.toString();
         final shortMsg = errorMsg.length > 30 ? '${errorMsg.substring(0, 30)}...' : errorMsg;
@@ -348,8 +352,7 @@ class _MainScreenState extends State<MainScreen> {
       }
 
       if (retryCount < maxRetries) {
-        await Future.delayed(Duration(milliseconds: delayMs));
-        delayMs = min(maxDelay, (delayMs * 1.5 + Random().nextInt(1000)).toInt());
+        await Future.delayed(Duration(milliseconds: delayMs.toInt()));
       }
     }
 
@@ -407,7 +410,9 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _cancelProcessing() {
-    _canceller?.complete();
+    if (!(_canceller?.isCompleted ?? true)) {
+      _canceller?.complete();
+    }
     setState(() {
       _isProcessing = false;
     });
@@ -1053,6 +1058,10 @@ class TabInfo {
   TabInfo(this.label, this.icon, this.key);
 }
 
+/// Fixed Semaphore:
+/// - Does NOT await inside the lock (avoids deadlock)
+/// - `acquire()` returns when a permit is available
+/// - `release()` completes a waiter or returns a permit
 class Semaphore {
   int _permits;
   final Queue<Completer<void>> _waiters = Queue();
@@ -1060,22 +1069,30 @@ class Semaphore {
 
   Semaphore(this._permits);
 
+  /// Acquire a permit. If none available, wait until released.
   Future<void> acquire() async {
-    await _lock.synchronized(() async {
+    Completer<void>? myWaiter;
+    await _lock.synchronized(() {
       if (_permits > 0) {
         _permits--;
+        myWaiter = null;
       } else {
-        final completer = Completer<void>();
-        _waiters.add(completer);
-        await completer.future;
+        myWaiter = Completer<void>();
+        _waiters.add(myWaiter!);
       }
     });
+    if (myWaiter != null) {
+      await myWaiter!.future;
+    }
   }
 
-  void release() {
-    _lock.synchronized(() {
+  /// Release a permit; if waiters exist, wake the first.
+  Future<void> release() async {
+    await _lock.synchronized(() {
       if (_waiters.isNotEmpty) {
-        _waiters.removeFirst().complete();
+        final c = _waiters.removeFirst();
+        // complete outside the lock is not necessary but allowed; completer.complete() is quick.
+        c.complete();
       } else {
         _permits++;
       }
