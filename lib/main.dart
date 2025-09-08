@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -88,7 +89,7 @@ class _MainScreenState extends State<MainScreen> {
   bool _isProcessing = false;
   final List<ResultItem> _results = [];
   Completer<void>? _canceller;
-  final _lock = Lock(); // From synchronized package for semaphore-like behavior
+  Semaphore? _semaphore;
   final GlobalKey<ScaffoldMessengerState> _scaffoldKey = GlobalKey();
 
   // For Text tab
@@ -182,10 +183,9 @@ class _MainScreenState extends State<MainScreen> {
       _isProcessing = true;
     });
     _canceller = Completer();
+    _semaphore = Semaphore(concurrentLimit);
     final client = http.Client();
     final futures = <Future>[];
-    int activePermits = 0;
-
     for (var username in _usernames) {
       futures.add(_processWithSemaphore(() async {
         if (_canceller!.isCompleted) return;
@@ -203,7 +203,12 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _processWithSemaphore(Future<void> Function() task) async {
-    await _lock.synchronized(task);
+    await _semaphore!.acquire();
+    try {
+      await task();
+    } finally {
+      _semaphore!.release();
+    }
   }
 
   Future<void> _checkUsername(http.Client client, String username) async {
@@ -305,7 +310,7 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '').split('.').first;
-    final fileName = 'final_$_originalFileName_$timestamp.json';
+    final fileName = 'final_${_originalFileName}_$timestamp.json';
     final result = await FilePicker.platform.saveFile(
       fileName: fileName,
       type: FileType.custom,
@@ -450,15 +455,19 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           ElevatedButton.icon(
             onPressed: _pickFileForProcessing,
-            icon: const Icon(Icons.attach_file),
+            icon: _selectedFile != null ? const Icon(Icons.check_circle, color: Colors.green) : const Icon(Icons.attach_file),
             label: Text(_selectedFile?.name ?? 'Pick File'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _selectedFile != null ? Colors.green[50] : null,
+              foregroundColor: _selectedFile != null ? Colors.green[700] : null,
+            ),
           ),
           const SizedBox(height: 16),
           ElevatedButton(
             onPressed: _isProcessing ? null : _startProcessingFromFile,
             child: const Text('Start Processing'),
           ),
-          if (_isProcessing) ..._buildProcessingUI(),
+          if (_usernames.isNotEmpty) ..._buildResultsUI(),
         ],
       ),
     );
@@ -483,7 +492,7 @@ class _MainScreenState extends State<MainScreen> {
             onPressed: _isProcessing ? null : _startProcessingFromText,
             child: const Text('Start Processing'),
           ),
-          if (_isProcessing) ..._buildProcessingUI(),
+          if (_usernames.isNotEmpty) ..._buildResultsUI(),
         ],
       ),
     );
@@ -497,8 +506,12 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           ElevatedButton.icon(
             onPressed: _pickJsonForConvert,
-            icon: const Icon(Icons.attach_file),
+            icon: _selectedJsonFile != null ? const Icon(Icons.check_circle, color: Colors.green) : const Icon(Icons.attach_file),
             label: Text(_selectedJsonFile?.name ?? 'Pick JSON File'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _selectedJsonFile != null ? Colors.green[50] : null,
+              foregroundColor: _selectedJsonFile != null ? Colors.green[700] : null,
+            ),
           ),
           const SizedBox(height: 16),
           ElevatedButton(
@@ -510,11 +523,11 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  List<Widget> _buildProcessingUI() {
-    final percentage = _usernames.isNotEmpty ? (_processedCount * 100 / _usernames.length).toInt() : 0;
+  List<Widget> _buildResultsUI() {
+    final percentage = _usernames.isNotEmpty ? (_processedCount * 100 ~/ _usernames.length) : 0;
     return [
       const SizedBox(height: 24),
-      LinearProgressIndicator(value: percentage / 100),
+      LinearProgressIndicator(value: percentage / 100.0),
       const SizedBox(height: 8),
       Text('Progress: $_processedCount/${_usernames.length} ($percentage%)', textAlign: TextAlign.center),
       const SizedBox(height: 16),
@@ -528,11 +541,12 @@ class _MainScreenState extends State<MainScreen> {
         ],
       ),
       const SizedBox(height: 16),
-      ElevatedButton(
-        onPressed: _cancelProcessing,
-        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-        child: const Text('Cancel'),
-      ),
+      if (_isProcessing)
+        ElevatedButton(
+          onPressed: _cancelProcessing,
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          child: const Text('Cancel'),
+        ),
       if (!_isProcessing && _activeAccounts.isNotEmpty)
         ElevatedButton(
           onPressed: _downloadResults,
@@ -618,4 +632,34 @@ class ResultItem {
   final String message;
 
   ResultItem(this.status, this.message);
+}
+
+class Semaphore {
+  int _permits;
+  final Queue<Completer<void>> _waiters = Queue();
+  final Lock _lock = Lock();
+
+  Semaphore(this._permits);
+
+  Future<void> acquire() async {
+    await _lock.synchronized(() async {
+      if (_permits > 0) {
+        _permits--;
+      } else {
+        final completer = Completer<void>();
+        _waiters.add(completer);
+        await completer.future;
+      }
+    });
+  }
+
+  void release() {
+    _lock.synchronized(() {
+      if (_waiters.isNotEmpty) {
+        _waiters.removeFirst().complete();
+      } else {
+        _permits++;
+      }
+    });
+  }
 }
