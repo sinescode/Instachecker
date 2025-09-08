@@ -138,7 +138,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _startProcessingFromText() async {
     final text = _textController.text.trim();
-    if (text.isEmpty()) {
+    if (text.isEmpty) {
       _showError('Please enter at least one username');
       return;
     }
@@ -346,16 +346,21 @@ class _MainScreenState extends State<MainScreen> {
       Sheet sheet = excel['Sheet1'];
 
       // Headers
-      sheet.appendRow(['Username', 'Password', 'Authcode', 'Email']);
+      sheet.appendRow([
+        TextCellValue('Username'), 
+        TextCellValue('Password'), 
+        TextCellValue('Authcode'), 
+        TextCellValue('Email')
+      ]);
 
       // Data rows, only include if fields exist
       for (var row in data) {
         final map = row as Map<String, dynamic>;
         sheet.appendRow([
-          map['username'] ?? '',
-          map['password'] ?? '',
-          map['auth_code'] ?? '',
-          map['email'] ?? '',
+          TextCellValue(map['username'] ?? ''),
+          TextCellValue(map['password'] ?? ''),
+          TextCellValue(map['auth_code'] ?? ''),
+          TextCellValue(map['email'] ?? ''),
         ]);
       }
 
