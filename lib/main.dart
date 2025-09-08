@@ -419,14 +419,14 @@ class _FileCheckTabState extends State<FileCheckTab> {
             ElevatedButton(
               onPressed: _cancelProcessing,
               child: Text('Cancel Processing'),
-              style: ElevatedButton.styleFrom(primary: Colors.red),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             ),
           ],
           if (_activeAccounts.isNotEmpty && !_isProcessing) 
             ElevatedButton(
               onPressed: _downloadResults,
               child: Text('Download Results'),
-              style: ElevatedButton.styleFrom(primary: Colors.green),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             ),
           SizedBox(height: 16),
           Text('Results:', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -841,14 +841,14 @@ class _TextCheckTabState extends State<TextCheckTab> {
             ElevatedButton(
               onPressed: _cancelProcessing,
               child: Text('Cancel Processing'),
-              style: ElevatedButton.styleFrom(primary: Colors.red),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             ),
           ],
           if (_activeAccounts.isNotEmpty && !_isProcessing) 
             ElevatedButton(
               onPressed: _downloadResults,
               child: Text('Download Results'),
-              style: ElevatedButton.styleFrom(primary: Colors.green),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             ),
           SizedBox(height: 16),
           Text('Results:', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -986,16 +986,21 @@ class _JsonToExcelTabState extends State<JsonToExcelTab> {
       final excel = Excel.createExcel();
       final sheet = excel['Sheet1'];
       
-      // Add headers
-      sheet.appendRow(['Username', 'Password', 'Authcode', 'Email']);
+      // Add headers with proper CellValue objects
+      sheet.appendRow([
+        TextCellValue('Username'),
+        TextCellValue('Password'),
+        TextCellValue('Authcode'),
+        TextCellValue('Email')
+      ]);
       
-      // Add data
+      // Add data with proper CellValue objects
       for (var item in jsonData) {
         sheet.appendRow([
-          item['username'] ?? '',
-          item['password'] ?? '',
-          item['auth_code'] ?? '',
-          item['email'] ?? ''
+          TextCellValue(item['username']?.toString() ?? ''),
+          TextCellValue(item['password']?.toString() ?? ''),
+          TextCellValue(item['auth_code']?.toString() ?? ''),
+          TextCellValue(item['email']?.toString() ?? '')
         ]);
       }
       
