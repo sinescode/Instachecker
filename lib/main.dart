@@ -9,7 +9,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:http/http.dart' as http;
-import 'package:excel/excel.dart';
+import 'package:excel/excel.dart' as excel; // Added prefix for excel package
 import 'package:path/path.dart' as path;
 import 'package:synchronized/synchronized.dart';
 import 'package:path_provider/path_provider.dart';
@@ -481,25 +481,25 @@ class _MainScreenState extends State<MainScreen> {
       final List<dynamic> data = jsonDecode(content);
 
       // Create Excel workbook
-      var excel = Excel.createExcel();
-      Sheet sheet = excel['Sheet1'];
+      var excelFile = excel.Excel.createExcel(); // Use prefix
+      excel.Sheet sheet = excelFile['Sheet1']; // Use prefix
 
       // Add headers
       sheet.appendRow([
-        TextCellValue('Username'),
-        TextCellValue('Password'),
-        TextCellValue('Authcode'),
-        TextCellValue('Email'),
+        excel.TextCellValue('Username'), // Use prefix
+        excel.TextCellValue('Password'), // Use prefix
+        excel.TextCellValue('Authcode'), // Use prefix
+        excel.TextCellValue('Email'), // Use prefix
       ]);
 
       // Add data rows
       for (var row in data) {
         final map = row as Map<String, dynamic>;
         sheet.appendRow([
-          TextCellValue(map['username']?.toString() ?? ''),
-          TextCellValue(map['password']?.toString() ?? ''),
-          TextCellValue(map['auth_code']?.toString() ?? ''),
-          TextCellValue(map['email']?.toString() ?? ''),
+          excel.TextCellValue(map['username']?.toString() ?? ''), // Use prefix
+          excel.TextCellValue(map['password']?.toString() ?? ''), // Use prefix
+          excel.TextCellValue(map['auth_code']?.toString() ?? ''), // Use prefix
+          excel.TextCellValue(map['email']?.toString() ?? ''), // Use prefix
         ]);
       }
 
@@ -512,7 +512,7 @@ class _MainScreenState extends State<MainScreen> {
       final filePath = path.join(directory.path, fileName);
       final file = File(filePath);
 
-      final excelBytes = excel.encode();
+      final excelBytes = excelFile.encode(); // Use prefix
       if (excelBytes != null) {
         await file.writeAsBytes(excelBytes);
         
@@ -830,7 +830,6 @@ class _MainScreenState extends State<MainScreen> {
         height: 8,
         decoration: BoxDecoration(
           color: Colors.grey[200],
-          borderRadius: BorderRadius.circular(4),
         ),
         child: FractionallySizedBox(
           alignment: Alignment.centerLeft,
@@ -838,7 +837,6 @@ class _MainScreenState extends State<MainScreen> {
           child: Container(
             decoration: BoxDecoration(
               color: Colors.green[600],
-              borderRadius: BorderRadius.circular(4),
             ),
           ),
         ),
