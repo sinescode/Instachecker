@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,8 @@ import 'package:http/http.dart' as http;
 import 'package:excel/excel.dart';
 import 'package:path/path.dart' as path;
 import 'package:synchronized/synchronized.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 void main() {
   runApp(const MyApp());
@@ -24,21 +27,23 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'InstaCheck',
       theme: ThemeData(
-        primaryColor: Colors.blue,
-        primarySwatch: Colors.blue,
-        scaffoldBackgroundColor: Colors.grey[50],
+        primarySwatch: Colors.indigo,
+        primaryColor: Colors.indigo,
+        scaffoldBackgroundColor: const Color(0xFFF9FAFB),
         cardColor: Colors.white,
-        textTheme: const TextTheme(
-          bodyLarge: TextStyle(color: Colors.black87),
-          bodyMedium: TextStyle(color: Colors.black54),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black87,
+          elevation: 0,
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            elevation: 2,
           ),
         ),
-        colorScheme: ColorScheme.fromSwatch().copyWith(
+        colorScheme: ColorScheme.fromSwatch(primarySwatch: Colors.indigo).copyWith(
           secondary: Colors.green,
           error: Colors.red,
         ),
@@ -56,10 +61,14 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _currentTab = 0; // 0: File, 1: Text, 2: Convert
-  final List<String> _tabNames = ['File Input', 'Text Input', 'Convert JSON to Excel'];
+  int _currentTab = 0;
+  final List<TabInfo> _tabs = [
+    TabInfo('Upload File', Icons.upload_file, 'file'),
+    TabInfo('Enter Text', Icons.keyboard, 'text'),
+    TabInfo('Convert Excel', Icons.file_present, 'excel'),
+  ];
 
-  // Shared variables
+  // API Headers
   final Map<String, String> _headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36",
     "x-ig-app-id": "936619743392459",
@@ -70,32 +79,36 @@ class _MainScreenState extends State<MainScreen> {
     "Sec-Fetch-Site": "same-origin",
   };
 
+  // Processing Configuration
   final int maxRetries = 10;
   final int initialDelay = 1000;
   final int maxDelay = 60000;
-  final int concurrentLimit = 5;
+  final int concurrentLimit = 5; // Reduced for better stability
 
-  // For processing (File and Text tabs)
+  // State Variables
   PlatformFile? _selectedFile;
   String _originalFileName = '';
   List<String> _usernames = [];
   Map<String, Map<String, dynamic>> _accountData = {};
   List<Map<String, dynamic>> _activeAccounts = [];
+  
+  // Counters
   int _processedCount = 0;
   int _activeCount = 0;
   int _availableCount = 0;
   int _errorCount = 0;
   int _cancelledCount = 0;
+  
+  // Processing State
   bool _isProcessing = false;
-  final List<ResultItem> _results = [];
   Completer<void>? _canceller;
   Semaphore? _semaphore;
-  final GlobalKey<ScaffoldMessengerState> _scaffoldKey = GlobalKey();
+  final List<ResultItem> _results = [];
 
-  // For Text tab
+  // Text Input Controller
   final TextEditingController _textController = TextEditingController();
 
-  // For Convert tab
+  // Convert Tab
   PlatformFile? _selectedJsonFile;
 
   @override
@@ -105,21 +118,30 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _switchTab(int index) {
+    if (_isProcessing) {
+      _showError('Please wait for current processing to complete');
+      return;
+    }
     setState(() {
       _currentTab = index;
     });
   }
 
   Future<void> _pickFileForProcessing() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['txt', 'json'],
-    );
-    if (result != null) {
-      setState(() {
-        _selectedFile = result.files.first;
-        _originalFileName = path.basenameWithoutExtension(_selectedFile!.name);
-      });
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['txt', 'json'],
+      );
+      if (result != null) {
+        setState(() {
+          _selectedFile = result.files.first;
+          _originalFileName = path.basenameWithoutExtension(_selectedFile!.name);
+        });
+        _showInfo('File selected: ${_selectedFile!.name}');
+      }
+    } catch (e) {
+      _showError('Error picking file: $e');
     }
   }
 
@@ -128,13 +150,30 @@ class _MainScreenState extends State<MainScreen> {
       _showError('Please select a file first');
       return;
     }
-    final extension = _selectedFile!.extension;
-    if (extension != 'json' && extension != 'txt') {
-      _showError('File must be .json or .txt format');
-      return;
+
+    try {
+      final extension = _selectedFile!.extension?.toLowerCase();
+      if (extension != 'json' && extension != 'txt') {
+        _showError('File must be .json or .txt format');
+        return;
+      }
+
+      // Read file bytes
+      Uint8List? bytes;
+      if (_selectedFile!.bytes != null) {
+        bytes = _selectedFile!.bytes!;
+      } else if (_selectedFile!.path != null) {
+        bytes = await File(_selectedFile!.path!).readAsBytes();
+      } else {
+        _showError('Cannot read file data');
+        return;
+      }
+
+      await _loadUsernamesFromBytes(bytes, extension!);
+      await _startProcessing();
+    } catch (e) {
+      _showError('Error processing file: $e');
     }
-    await _loadUsernamesFromFile(_selectedFile!, extension!);
-    await _startProcessing();
   }
 
   Future<void> _startProcessingFromText() async {
@@ -143,33 +182,62 @@ class _MainScreenState extends State<MainScreen> {
       _showError('Please enter at least one username');
       return;
     }
-    _usernames = text.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    
+    _usernames = text
+        .split('\n')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    
+    _accountData.clear();
     for (var u in _usernames) {
       _accountData[u] = {'username': u};
     }
     _originalFileName = 'manual_input';
+    
     await _startProcessing();
   }
 
-  Future<void> _loadUsernamesFromFile(PlatformFile file, String type) async {
-    final bytes = await File(file.path!).readAsBytes();
-    if (type == 'txt') {
+  Future<void> _loadUsernamesFromBytes(Uint8List bytes, String type) async {
+    try {
       final content = utf8.decode(bytes);
-      _usernames = content.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-      for (var u in _usernames) {
-        _accountData[u] = {'username': u};
-      }
-    } else { // json
-      final content = utf8.decode(bytes);
-      try {
-        final List<dynamic> array = jsonDecode(content);
-        _usernames = array.map((e) => e['username'] as String).toList();
-        for (int i = 0; i < _usernames.length; i++) {
-          _accountData[_usernames[i]] = array[i] as Map<String, dynamic>;
+      _usernames.clear();
+      _accountData.clear();
+
+      if (type == 'txt') {
+        _usernames = content
+            .split('\n')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+        
+        for (var u in _usernames) {
+          _accountData[u] = {'username': u};
         }
-      } catch (e) {
-        _showError('Invalid JSON format');
+      } else if (type == 'json') {
+        final dynamic jsonData = jsonDecode(content);
+        
+        if (jsonData is List) {
+          for (var item in jsonData) {
+            if (item is Map<String, dynamic> && item.containsKey('username')) {
+              final username = item['username'].toString();
+              _usernames.add(username);
+              _accountData[username] = item;
+            }
+          }
+        } else {
+          throw Exception('JSON must be an array of objects');
+        }
       }
+
+      if (_usernames.isEmpty) {
+        throw Exception('No valid usernames found in file');
+      }
+
+      _showInfo('Loaded ${_usernames.length} usernames');
+    } catch (e) {
+      _showError('Error loading usernames: $e');
+      rethrow;
     }
   }
 
@@ -178,27 +246,40 @@ class _MainScreenState extends State<MainScreen> {
       _showError('No valid usernames found');
       return;
     }
+
     _resetStats();
     setState(() {
       _isProcessing = true;
     });
+
     _canceller = Completer();
     _semaphore = Semaphore(concurrentLimit);
     final client = http.Client();
-    final futures = <Future>[];
-    for (var username in _usernames) {
-      futures.add(_processWithSemaphore(() async {
-        if (_canceller!.isCompleted) return;
-        await _checkUsername(client, username);
-      }));
-    }
 
-    await Future.wait(futures);
-    if (!_canceller!.isCompleted) {
+    try {
+      final futures = <Future>[];
+      for (var username in _usernames) {
+        futures.add(_processWithSemaphore(() async {
+          if (_canceller!.isCompleted) return;
+          await _checkUsername(client, username);
+        }));
+      }
+
+      await Future.wait(futures);
+      
+      if (!_canceller!.isCompleted) {
+        setState(() {
+          _isProcessing = false;
+        });
+        _showSuccess('Processing completed! Found $_activeCount active accounts.');
+      }
+    } catch (e) {
+      _showError('Processing error: $e');
       setState(() {
         _isProcessing = false;
       });
-      _showSuccess('Processing completed! Found ${_activeAccounts.length} active accounts.');
+    } finally {
+      client.close();
     }
   }
 
@@ -223,66 +304,95 @@ class _MainScreenState extends State<MainScreen> {
       }
 
       try {
-        final response = await client.get(url, headers: _headers);
+        final response = await client.get(url, headers: _headers).timeout(
+          const Duration(seconds: 30),
+        );
+        
         final code = response.statusCode;
 
         if (code == 404) {
-          final result = ' $username - Available';
-          _updateResult('AVAILABLE', result, username);
+          _updateResult('AVAILABLE', '$username - Available', username);
           return;
         } else if (code == 200) {
-          final body = response.body;
-          final json = jsonDecode(body);
-          final status = json['data']?['user'] != null ? 'ACTIVE' : 'AVAILABLE';
-          final result = status == 'ACTIVE' ? ' $username - Active' : ' $username - Available';
-          _updateResult(status, result, username);
-          if (status == 'ACTIVE') {
-            final data = _accountData[username];
-            if (data != null) _activeAccounts.add(data);
+          try {
+            final json = jsonDecode(response.body);
+            final hasUser = json['data']?['user'] != null;
+            
+            if (hasUser) {
+              _updateResult('ACTIVE', '$username - Active', username);
+              final data = _accountData[username];
+              if (data != null) {
+                _activeAccounts.add(data);
+              }
+            } else {
+              _updateResult('AVAILABLE', '$username - Available', username);
+            }
+          } catch (e) {
+            _updateResult('ERROR', '$username - JSON Parse Error', username);
           }
           return;
+        } else if (code == 429) {
+          // Rate limited, wait longer
+          delayMs = min(maxDelay, delayMs * 3);
+          retryCount++;
+          _updateStatus('Rate limited for $username, waiting ${delayMs}ms...', username);
         } else {
           retryCount++;
-          final statusMsg = ' Retry $retryCount/$maxRetries for $username (Status: $code)';
-          _updateStatus(statusMsg, username);
+          _updateStatus('Retry $retryCount/$maxRetries for $username (Status: $code)', username);
         }
       } catch (e) {
         retryCount++;
-        final statusMsg = ' Retry $retryCount/$maxRetries for $username (${e.toString().substring(0, min(30, e.toString().length))}...)';
-        _updateStatus(statusMsg, username);
+        final errorMsg = e.toString();
+        final shortMsg = errorMsg.length > 30 ? '${errorMsg.substring(0, 30)}...' : errorMsg;
+        _updateStatus('Retry $retryCount/$maxRetries for $username ($shortMsg)', username);
       }
-      await Future.delayed(Duration(milliseconds: delayMs));
-      delayMs = min(maxDelay, (delayMs * 2 + Random().nextInt(1000)).toInt());
+
+      if (retryCount < maxRetries) {
+        await Future.delayed(Duration(milliseconds: delayMs));
+        delayMs = min(maxDelay, (delayMs * 1.5 + Random().nextInt(1000)).toInt());
+      }
     }
-    final result = ' $username - Error (Max retries exceeded)';
-    _updateResult('ERROR', result, username);
+
+    _updateResult('ERROR', '$username - Max retries exceeded', username);
   }
 
   void _updateResult(String status, String message, String username) {
-    setState(() {
-      _processedCount++;
-      switch (status) {
-        case 'ACTIVE':
-          _activeCount++;
-          break;
-        case 'AVAILABLE':
-          _availableCount++;
-          break;
-        case 'ERROR':
-          _errorCount++;
-          break;
-        case 'CANCELLED':
-          _cancelledCount++;
-          break;
-      }
-      _results.insert(0, ResultItem(status, message));
-    });
+    if (mounted) {
+      setState(() {
+        _processedCount++;
+        switch (status) {
+          case 'ACTIVE':
+            _activeCount++;
+            break;
+          case 'AVAILABLE':
+            _availableCount++;
+            break;
+          case 'ERROR':
+            _errorCount++;
+            break;
+          case 'CANCELLED':
+            _cancelledCount++;
+            break;
+        }
+        _results.insert(0, ResultItem(status, message));
+        
+        // Keep only last 100 results to prevent memory issues
+        if (_results.length > 100) {
+          _results.removeLast();
+        }
+      });
+    }
   }
 
   void _updateStatus(String message, String username) {
-    setState(() {
-      _results.insert(0, ResultItem('INFO', message));
-    });
+    if (mounted) {
+      setState(() {
+        _results.insert(0, ResultItem('INFO', message));
+        if (_results.length > 10000) {
+          _results.removeLast();
+        }
+      });
+    }
   }
 
   void _resetStats() {
@@ -309,30 +419,43 @@ class _MainScreenState extends State<MainScreen> {
       _showError('No active accounts to download');
       return;
     }
-    final timestamp = DateTime.now().toIso8601String().replaceAll(':', '').split('.').first;
-    final fileName = 'final_${_originalFileName}_$timestamp.json';
-    final result = await FilePicker.platform.saveFile(
-      fileName: fileName,
-      type: FileType.custom,
-      allowedExtensions: ['json'],
-    );
-    if (result != null) {
-      final jsonArray = jsonEncode(_activeAccounts);
-      await File(result).writeAsString(jsonArray);
-      _showSuccess('Results saved successfully! (${_activeAccounts.length} active accounts)');
+
+    try {
+      final timestamp = DateTime.now().toIso8601String().replaceAll(':', '').split('.').first;
+      final fileName = 'active_accounts_${_originalFileName}_$timestamp.json';
+      final jsonData = jsonEncode(_activeAccounts);
+
+      // Get app directory
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = path.join(directory.path, fileName);
+      final file = File(filePath);
+      
+      await file.writeAsString(jsonData);
+      
+      // Share the file
+      await Share.shareXFiles([XFile(filePath)], text: 'Active Instagram Accounts');
+      
+      _showSuccess('Results saved and shared! (${_activeAccounts.length} active accounts)');
+    } catch (e) {
+      _showError('Error saving results: $e');
     }
   }
 
-  // Convert tab logic
+  // Convert Tab Functions
   Future<void> _pickJsonForConvert() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['json'],
-    );
-    if (result != null) {
-      setState(() {
-        _selectedJsonFile = result.files.first;
-      });
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+      if (result != null) {
+        setState(() {
+          _selectedJsonFile = result.files.first;
+        });
+        _showInfo('JSON file selected: ${_selectedJsonFile!.name}');
+      }
+    } catch (e) {
+      _showError('Error picking JSON file: $e');
     }
   }
 
@@ -341,248 +464,509 @@ class _MainScreenState extends State<MainScreen> {
       _showError('Please select a JSON file first');
       return;
     }
+
     try {
-      final bytes = await File(_selectedJsonFile!.path!).readAsBytes();
+      // Read file bytes
+      Uint8List? bytes;
+      if (_selectedJsonFile!.bytes != null) {
+        bytes = _selectedJsonFile!.bytes!;
+      } else if (_selectedJsonFile!.path != null) {
+        bytes = await File(_selectedJsonFile!.path!).readAsBytes();
+      } else {
+        _showError('Cannot read JSON file data');
+        return;
+      }
+
       final content = utf8.decode(bytes);
       final List<dynamic> data = jsonDecode(content);
 
-      // Create Excel
+      // Create Excel workbook
       var excel = Excel.createExcel();
       Sheet sheet = excel['Sheet1'];
 
-      // Headers
+      // Add headers
       sheet.appendRow([
-        TextCellValue('Username'), 
-        TextCellValue('Password'), 
-        TextCellValue('Authcode'), 
-        TextCellValue('Email')
+        const TextCellValue('Username'),
+        const TextCellValue('Password'),
+        const TextCellValue('Authcode'),
+        const TextCellValue('Email'),
       ]);
 
-      // Data rows, only include if fields exist
+      // Add data rows
       for (var row in data) {
         final map = row as Map<String, dynamic>;
         sheet.appendRow([
-          TextCellValue(map['username'] ?? ''),
-          TextCellValue(map['password'] ?? ''),
-          TextCellValue(map['auth_code'] ?? ''),
-          TextCellValue(map['email'] ?? ''),
+          TextCellValue(map['username']?.toString() ?? ''),
+          TextCellValue(map['password']?.toString() ?? ''),
+          TextCellValue(map['auth_code']?.toString() ?? ''),
+          TextCellValue(map['email']?.toString() ?? ''),
         ]);
       }
 
-      // Save
+      // Save Excel file
+      final timestamp = DateTime.now().toIso8601String().replaceAll(':', '').split('.').first;
       final baseName = path.basenameWithoutExtension(_selectedJsonFile!.name);
-      final excelPath = await FilePicker.platform.saveFile(
-        fileName: '$baseName.xlsx',
-        type: FileType.custom,
-        allowedExtensions: ['xlsx'],
-      );
-      if (excelPath != null) {
-        final bytes = excel.encode();
-        if (bytes != null) {
-          await File(excelPath).writeAsBytes(bytes);
-          _showSuccess('Converted: ${_selectedJsonFile!.name} → $baseName.xlsx');
-        }
+      final fileName = '${baseName}_$timestamp.xlsx';
+      
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = path.join(directory.path, fileName);
+      final file = File(filePath);
+
+      final excelBytes = excel.encode();
+      if (excelBytes != null) {
+        await file.writeAsBytes(excelBytes);
+        
+        // Share the Excel file
+        await Share.shareXFiles([XFile(filePath)], text: 'Converted Excel File');
+        
+        _showSuccess('Converted and shared: ${_selectedJsonFile!.name} → $fileName');
+      } else {
+        _showError('Failed to encode Excel file');
       }
     } catch (e) {
       _showError('Failed to convert: $e');
     }
   }
 
+  // Utility Methods
   void _showSuccess(String message) {
-    Fluttertoast.showToast(msg: message, toastLength: Toast.LENGTH_LONG, gravity: ToastGravity.BOTTOM);
+    Fluttertoast.showToast(
+      msg: message,
+      toastLength: Toast.LENGTH_LONG,
+      gravity: ToastGravity.BOTTOM,
+      backgroundColor: Colors.green,
+      textColor: Colors.white,
+    );
   }
 
   void _showError(String message) {
-    Fluttertoast.showToast(msg: message, toastLength: Toast.LENGTH_LONG, gravity: ToastGravity.BOTTOM, backgroundColor: Colors.red);
+    Fluttertoast.showToast(
+      msg: message,
+      toastLength: Toast.LENGTH_LONG,
+      gravity: ToastGravity.BOTTOM,
+      backgroundColor: Colors.red,
+      textColor: Colors.white,
+    );
   }
 
   void _showInfo(String message) {
-    Fluttertoast.showToast(msg: message, toastLength: Toast.LENGTH_SHORT, gravity: ToastGravity.BOTTOM);
+    Fluttertoast.showToast(
+      msg: message,
+      toastLength: Toast.LENGTH_SHORT,
+      gravity: ToastGravity.BOTTOM,
+      backgroundColor: Colors.blue,
+      textColor: Colors.white,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      key: _scaffoldKey,
+      backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(
-        title: const Text('InstaCheck'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.camera_alt, color: Colors.pink[400]),
+            const SizedBox(width: 8),
+            const Text(
+              'Instagram Username Checker',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF4F46E5),
+              ),
+            ),
+          ],
+        ),
         centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0,
       ),
-      body: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: List.generate(_tabNames.length, (index) {
-              return Expanded(
-                child: TextButton(
-                  onPressed: () => _switchTab(index),
-                  style: TextButton.styleFrom(
-                    backgroundColor: _currentTab == index ? Theme.of(context).primaryColor.withOpacity(0.1) : Colors.grey[100],
-                    foregroundColor: _currentTab == index ? Theme.of(context).primaryColor : Colors.grey[600],
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: Text(_tabNames[index]),
+      body: SafeArea(
+        child: Container(
+          margin: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.1),
+                spreadRadius: 1,
+                blurRadius: 10,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              _buildTabBar(),
+              Expanded(
+                child: _buildTabContent(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabBar() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.grey[100],
+      ),
+      child: Row(
+        children: List.generate(_tabs.length, (index) {
+          final tab = _tabs[index];
+          final isSelected = _currentTab == index;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => _switchTab(index),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: isSelected ? const Color(0xFF4F46E5) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-              );
-            }),
-          ),
-          Expanded(
-            child: _buildTabContent(),
-          ),
-        ],
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      tab.icon,
+                      size: 16,
+                      color: isSelected ? Colors.white : Colors.grey[600],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      tab.label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isSelected ? Colors.white : Colors.grey[600],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
 
   Widget _buildTabContent() {
-    switch (_currentTab) {
-      case 0: // File Input
-        return _buildFileTab();
-      case 1: // Text Input
-        return _buildTextTab();
-      case 2: // Convert
-        return _buildConvertTab();
-      default:
-        return const SizedBox.shrink();
-    }
-  }
-
-  Widget _buildFileTab() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ElevatedButton.icon(
-            onPressed: _pickFileForProcessing,
-            icon: _selectedFile != null ? const Icon(Icons.check_circle, color: Colors.green) : const Icon(Icons.attach_file),
-            label: Text(_selectedFile?.name ?? 'Pick File'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _selectedFile != null ? Colors.green[50] : null,
-              foregroundColor: _selectedFile != null ? Colors.green[700] : null,
-            ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _isProcessing ? null : _startProcessingFromFile,
-            child: const Text('Start Processing'),
-          ),
-          if (_usernames.isNotEmpty) ..._buildResultsUI(),
+          if (_currentTab == 0) _buildFileTab(),
+          if (_currentTab == 1) _buildTextTab(),
+          if (_currentTab == 2) _buildConvertTab(),
+          if (_usernames.isNotEmpty && _currentTab != 2) ..._buildResultsUI(),
         ],
       ),
+    );
+  }
+
+  Widget _buildFileTab() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Upload a file',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF4F46E5),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'JSON or TXT — one username per line (or an array in JSON).',
+          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton.icon(
+          onPressed: _isProcessing ? null : _pickFileForProcessing,
+          icon: _selectedFile != null
+              ? const Icon(Icons.check_circle, color: Colors.green)
+              : const Icon(Icons.attach_file),
+          label: Text(_selectedFile?.name ?? 'Pick File'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _selectedFile != null ? Colors.green[50] : const Color(0xFF4F46E5),
+            foregroundColor: _selectedFile != null ? Colors.green[700] : Colors.white,
+            minimumSize: const Size(double.infinity, 48),
+          ),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton.icon(
+          onPressed: _isProcessing ? null : _startProcessingFromFile,
+          icon: const Icon(Icons.search),
+          label: const Text('Start Checking'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red[600],
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 48),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildTextTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            controller: _textController,
-            maxLines: 10,
-            decoration: const InputDecoration(
-              labelText: 'Enter usernames (one per line)',
-              border: OutlineInputBorder(),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Enter Usernames',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF4F46E5),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'One username per line.',
+          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _textController,
+          maxLines: 8,
+          decoration: InputDecoration(
+            hintText: 'user1\nuser2\nuser3...',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey[300]!),
             ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFF4F46E5)),
+            ),
+            contentPadding: const EdgeInsets.all(16),
           ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _isProcessing ? null : _startProcessingFromText,
-            child: const Text('Start Processing'),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton.icon(
+          onPressed: _isProcessing ? null : _startProcessingFromText,
+          icon: const Icon(Icons.search),
+          label: const Text('Start Checking'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red[600],
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 48),
           ),
-          if (_usernames.isNotEmpty) ..._buildResultsUI(),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   Widget _buildConvertTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ElevatedButton.icon(
-            onPressed: _pickJsonForConvert,
-            icon: _selectedJsonFile != null ? const Icon(Icons.check_circle, color: Colors.green) : const Icon(Icons.attach_file),
-            label: Text(_selectedJsonFile?.name ?? 'Pick JSON File'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _selectedJsonFile != null ? Colors.green[50] : null,
-              foregroundColor: _selectedJsonFile != null ? Colors.green[700] : null,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Convert JSON to Excel',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF4F46E5),
           ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _convertJsonToExcel,
-            child: const Text('Convert to Excel'),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Upload a JSON file to convert it to Excel format with proper column names.',
+          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton.icon(
+          onPressed: _pickJsonForConvert,
+          icon: _selectedJsonFile != null
+              ? const Icon(Icons.check_circle, color: Colors.green)
+              : const Icon(Icons.attach_file),
+          label: Text(_selectedJsonFile?.name ?? 'Pick JSON File'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _selectedJsonFile != null ? Colors.green[50] : const Color(0xFF4F46E5),
+            foregroundColor: _selectedJsonFile != null ? Colors.green[700] : Colors.white,
+            minimumSize: const Size(double.infinity, 48),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton.icon(
+          onPressed: _convertJsonToExcel,
+          icon: const Icon(Icons.file_download),
+          label: const Text('Convert to Excel'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green[600],
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 48),
+          ),
+        ),
+      ],
     );
   }
 
   List<Widget> _buildResultsUI() {
-    final percentage = _usernames.isNotEmpty ? (_processedCount * 100 ~/ _usernames.length) : 0;
+    final percentage = _usernames.isNotEmpty ? (_processedCount * 100 / _usernames.length) : 0.0;
+    
     return [
       const SizedBox(height: 24),
-      LinearProgressIndicator(value: percentage / 100.0),
+      const Text(
+        'Progress',
+        style: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF4F46E5),
+        ),
+      ),
+      const SizedBox(height: 12),
+      Container(
+        height: 8,
+        decoration: BoxDecoration(
+          color: Colors.grey[200],
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: FractionallySizedBox(
+          alignment: Alignment.centerLeft,
+          widthFactor: percentage / 100,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.green[600],
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        ),
+      ),
       const SizedBox(height: 8),
-      Text('Progress: $_processedCount/${_usernames.length} ($percentage%)', textAlign: TextAlign.center),
+      Text(
+        'Processed: $_processedCount/${_usernames.length} (${percentage.toStringAsFixed(1)}%)',
+        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+        textAlign: TextAlign.center,
+      ),
       const SizedBox(height: 16),
       Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildStatCard('Total', _usernames.length.toString(), Colors.blue),
-          _buildStatCard('Active', _activeCount.toString(), Colors.red),
-          _buildStatCard('Available', _availableCount.toString(), Colors.green),
-          _buildStatCard('Errors', _errorCount.toString(), Colors.orange),
+          Expanded(child: _buildStatCard('Active', _activeCount.toString(), Colors.red[50]!, Colors.red[600]!)),
+          const SizedBox(width: 12),
+          Expanded(child: _buildStatCard('Available', _availableCount.toString(), Colors.green[50]!, Colors.green[700]!)),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          Expanded(child: _buildStatCard('Error', _errorCount.toString(), Colors.orange[50]!, Colors.orange[700]!)),
+          const SizedBox(width: 12),
+          Expanded(child: _buildStatCard('Total', _usernames.length.toString(), Colors.blue[50]!, Colors.blue[700]!)),
         ],
       ),
       const SizedBox(height: 16),
       if (_isProcessing)
-        ElevatedButton(
+        ElevatedButton.icon(
           onPressed: _cancelProcessing,
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          child: const Text('Cancel'),
+          icon: const Icon(Icons.close),
+          label: const Text('Cancel'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red[600],
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 48),
+          ),
         ),
       if (!_isProcessing && _activeAccounts.isNotEmpty)
-        ElevatedButton(
+        ElevatedButton.icon(
           onPressed: _downloadResults,
-          child: const Text('Download Active Accounts'),
+          icon: const Icon(Icons.download),
+          label: const Text('Download Active Accounts'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green[600],
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 48),
+          ),
         ),
       const SizedBox(height: 16),
-      const Text('Results:', style: TextStyle(fontWeight: FontWeight.bold)),
-      ListView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: _results.length,
-        itemBuilder: (context, index) {
-          final item = _results[index];
-          return Card(
-            color: _getBackgroundColor(item.status),
-            child: ListTile(
-              leading: Icon(_getIcon(item.status), color: _getTextColor(item.status)),
-              title: Text(item.message, style: TextStyle(color: _getTextColor(item.status))),
-            ),
-          );
-        },
+      const Text(
+        'Results',
+        style: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF4F46E5),
+        ),
+      ),
+      const SizedBox(height: 8),
+      Container(
+        constraints: const BoxConstraints(maxHeight: 300),
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: _results.length,
+          itemBuilder: (context, index) {
+            final item = _results[index];
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _getBackgroundColor(item.status),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _getBorderColor(item.status)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _getIcon(item.status),
+                    color: _getTextColor(item.status),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      item.message,
+                      style: TextStyle(
+                        color: _getTextColor(item.status),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     ];
   }
 
-  Widget _buildStatCard(String label, String value, Color color) {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          children: [
-            Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
-            Text(label, style: const TextStyle(fontSize: 12)),
-          ],
-        ),
+  Widget _buildStatCard(String label, String value, Color backgroundColor, Color textColor) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: textColor.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: textColor.withOpacity(0.8),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -590,39 +974,68 @@ class _MainScreenState extends State<MainScreen> {
   IconData _getIcon(String status) {
     switch (status) {
       case 'ACTIVE':
-        return Icons.cancel;
+        return Icons.person_check;
       case 'AVAILABLE':
-        return Icons.check_circle;
+        return Icons.person_add;
       case 'ERROR':
         return Icons.error;
-      default:
+      case 'CANCELLED':
+        return Icons.cancel;
+      case 'INFO':
         return Icons.info;
+      default:
+        return Icons.help;
     }
   }
 
   Color _getBackgroundColor(String status) {
     switch (status) {
       case 'ACTIVE':
-        return const Color(0xFFFECACA);
+        return Colors.red[50]!;
       case 'AVAILABLE':
-        return const Color(0xFFD1FAE5);
+        return Colors.green[50]!;
       case 'ERROR':
-        return const Color(0xFFFEF3C7);
+        return Colors.orange[50]!;
+      case 'CANCELLED':
+        return Colors.grey[50]!;
+      case 'INFO':
+        return Colors.blue[50]!;
       default:
-        return const Color(0xFFF9FAFB);
+        return Colors.grey[50]!;
+    }
+  }
+
+  Color _getBorderColor(String status) {
+    switch (status) {
+      case 'ACTIVE':
+        return Colors.red[100]!;
+      case 'AVAILABLE':
+        return Colors.green[100]!;
+      case 'ERROR':
+        return Colors.orange[100]!;
+      case 'CANCELLED':
+        return Colors.grey[100]!;
+      case 'INFO':
+        return Colors.blue[100]!;
+      default:
+        return Colors.grey[100]!;
     }
   }
 
   Color _getTextColor(String status) {
     switch (status) {
       case 'ACTIVE':
-        return const Color(0xFFDC2626);
+        return Colors.red[700]!;
       case 'AVAILABLE':
-        return const Color(0xFF059669);
+        return Colors.green[700]!;
       case 'ERROR':
-        return const Color(0xFFD97706);
+        return Colors.orange[700]!;
+      case 'CANCELLED':
+        return Colors.grey[700]!;
+      case 'INFO':
+        return Colors.blue[700]!;
       default:
-        return const Color(0xFF6B7280);
+        return Colors.grey[700]!;
     }
   }
 }
@@ -632,6 +1045,14 @@ class ResultItem {
   final String message;
 
   ResultItem(this.status, this.message);
+}
+
+class TabInfo {
+  final String label;
+  final IconData icon;
+  final String key;
+
+  TabInfo(this.label, this.icon, this.key);
 }
 
 class Semaphore {

@@ -36,6 +36,9 @@ dependencies:
   path: ^1.9.1
   synchronized: ^3.4.0
   fluttertoast: ^8.2.12
+  path_provider: ^2.1.5
+  share_plus: ^11.1.0
+  cupertino_icons: ^1.0.8
   
 dev_dependencies:
   flutter_test:
