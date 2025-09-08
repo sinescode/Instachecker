@@ -486,10 +486,10 @@ class _MainScreenState extends State<MainScreen> {
 
       // Add headers
       sheet.appendRow([
-        const TextCellValue('Username'),
-        const TextCellValue('Password'),
-        const TextCellValue('Authcode'),
-        const TextCellValue('Email'),
+        TextCellValue('Username'),
+        TextCellValue('Password'),
+        TextCellValue('Authcode'),
+        TextCellValue('Email'),
       ]);
 
       // Add data rows
@@ -974,7 +974,7 @@ class _MainScreenState extends State<MainScreen> {
   IconData _getIcon(String status) {
     switch (status) {
       case 'ACTIVE':
-        return Icons.person_check;
+        return Icons.verified_user;
       case 'AVAILABLE':
         return Icons.person_add;
       case 'ERROR':
