@@ -9,12 +9,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:http/http.dart' as http;
-import 'package:excel/excel.dart' as excel; // Added prefix for excel package
+import 'package:excel/excel.dart' as excel;
 import 'package:path/path.dart' as path;
 import 'package:synchronized/synchronized.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   runApp(const MyApp());
@@ -420,56 +418,6 @@ class _MainScreenState extends State<MainScreen> {
     _showInfo('Processing cancelled');
   }
 
-  /// Get a directory in which to save files. On Android this will try to use
-  /// the public Download folder (/storage/emulated/0/Download/insta_saver).
-  /// Falls back to app documents directory if anything fails.
-  Future<Directory> _getSaveDirectory() async {
-    try {
-      if (Platform.isAndroid) {
-        // Try common public download path first
-        final primary = Directory('/storage/emulated/0/Download/insta_saver');
-        if (!(await primary.exists())) {
-          await primary.create(recursive: true);
-        }
-        return primary;
-      } else {
-        final dir = await getApplicationDocumentsDirectory();
-        final folder = Directory(path.join(dir.path, 'insta_saver'));
-        if (!(await folder.exists())) await folder.create(recursive: true);
-        return folder;
-      }
-    } catch (e) {
-      // Fallback to app documents directory
-      final dir = await getApplicationDocumentsDirectory();
-      final folder = Directory(path.join(dir.path, 'insta_saver'));
-      if (!(await folder.exists())) await folder.create(recursive: true);
-      return folder;
-    }
-  }
-
-  /// Ask for storage permission on Android (best-effort). If permission is
-  /// denied we'll still attempt to write to app documents directory.
-  Future<bool> _ensureStoragePermission() async {
-    try {
-      if (!Platform.isAndroid) return true;
-
-      // On Android 11+ MANAGE_EXTERNAL_STORAGE might be needed for broad access.
-      // permission_handler conveniently exposes it.
-      if (await Permission.storage.isGranted) return true;
-
-      final status = await Permission.storage.request();
-      if (status.isGranted) return true;
-
-      // Try manageExternalStorage for Android 11+
-      if (await Permission.manageExternalStorage.isGranted) return true;
-
-      final m = await Permission.manageExternalStorage.request();
-      return m.isGranted;
-    } catch (e) {
-      return false;
-    }
-  }
-
   Future<void> _downloadResults() async {
     if (_activeAccounts.isEmpty) {
       _showError('No active accounts to download');
@@ -477,22 +425,22 @@ class _MainScreenState extends State<MainScreen> {
     }
 
     try {
-      // Ensure permission but don't block if denied; fallback exists
-      await _ensureStoragePermission();
-
       final timestamp = DateTime.now().toIso8601String().replaceAll(':', '').split('.').first;
       final fileName = 'active_accounts_${_originalFileName}_$timestamp.json';
-      final jsonData = jsonEncode(_activeAccounts);
-
-      final saveDir = await _getSaveDirectory();
+      
+      // Get the downloads directory and create insta_saver folder
+      final Directory downloadsDir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+      final Directory saveDir = Directory('${downloadsDir.path}/insta_saver');
+      if (!await saveDir.exists()) {
+        await saveDir.create(recursive: true);
+      }
+      
       final filePath = path.join(saveDir.path, fileName);
-      final file = File(filePath);
-      await file.writeAsString(jsonData);
+      final jsonData = jsonEncode(_activeAccounts);
       
-      // Share the file (works even if saved to public folder)
-      await Share.shareXFiles([XFile(filePath)], text: 'Active Instagram Accounts');
+      await File(filePath).writeAsString(jsonData);
       
-      _showSuccess('Results saved to ${saveDir.path} (${_activeAccounts.length} active accounts)');
+      _showSuccess('Results saved to ${saveDir.path}/$fileName (${_activeAccounts.length} active accounts)');
     } catch (e) {
       _showError('Error saving results: $e');
     }
@@ -538,25 +486,25 @@ class _MainScreenState extends State<MainScreen> {
       final List<dynamic> data = jsonDecode(content);
 
       // Create Excel workbook
-      var excelFile = excel.Excel.createExcel(); // Use prefix
-      excel.Sheet sheet = excelFile['Sheet1']; // Use prefix
+      var excelFile = excel.Excel.createExcel();
+      excel.Sheet sheet = excelFile['Sheet1'];
 
       // Add headers
       sheet.appendRow([
-        'Username',
-        'Password',
-        'Authcode',
-        'Email',
+        excel.TextCellValue('Username'),
+        excel.TextCellValue('Password'),
+        excel.TextCellValue('Authcode'),
+        excel.TextCellValue('Email'),
       ]);
 
       // Add data rows
       for (var row in data) {
         final map = row as Map<String, dynamic>;
         sheet.appendRow([
-          map['username']?.toString() ?? '',
-          map['password']?.toString() ?? '',
-          map['auth_code']?.toString() ?? '',
-          map['email']?.toString() ?? '',
+          excel.TextCellValue(map['username']?.toString() ?? ''),
+          excel.TextCellValue(map['password']?.toString() ?? ''),
+          excel.TextCellValue(map['auth_code']?.toString() ?? ''),
+          excel.TextCellValue(map['email']?.toString() ?? ''),
         ]);
       }
 
@@ -565,20 +513,21 @@ class _MainScreenState extends State<MainScreen> {
       final baseName = path.basenameWithoutExtension(_selectedJsonFile!.name);
       final fileName = '${baseName}_$timestamp.xlsx';
       
-      // Attempt to ensure permission (best-effort)
-      await _ensureStoragePermission();
-      final saveDir = await _getSaveDirectory();
+      // Get the downloads directory and create insta_saver folder
+      final Directory downloadsDir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+      final Directory saveDir = Directory('${downloadsDir.path}/insta_saver');
+      if (!await saveDir.exists()) {
+        await saveDir.create(recursive: true);
+      }
+      
       final filePath = path.join(saveDir.path, fileName);
       final file = File(filePath);
 
-      final excelBytes = excelFile.encode(); // Use prefix
+      final excelBytes = excelFile.encode();
       if (excelBytes != null) {
         await file.writeAsBytes(excelBytes);
         
-        // Share the Excel file
-        await Share.shareXFiles([XFile(filePath)], text: 'Converted Excel File');
-        
-        _showSuccess('Converted and saved: ${_selectedJsonFile!.name} → $filePath');
+        _showSuccess('Converted and saved to ${saveDir.path}/$fileName');
       } else {
         _showError('Failed to encode Excel file');
       }
@@ -1007,22 +956,22 @@ class _MainScreenState extends State<MainScreen> {
       ),
       child: Column(
         children: [
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: textColor,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: textColor.withOpacity(0.8),
-            ),
-          ),
+      Text(
+        value,
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: textColor,
+        ),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          color: textColor.withOpacity(0.8),
+        ),
+      ),
         ],
       ),
     );
