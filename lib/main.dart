@@ -514,7 +514,7 @@ class _MainScreenState extends State<MainScreen> {
       final fileName = '${baseName}_$timestamp.xlsx';
       
       // Get the downloads directory and create insta_saver folder
-      final Directory downloadsDir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+      final Directory downloadDir = Directory('/storage/emulated/0/Download');
       final Directory saveDir = Directory('${downloadsDir.path}/insta_saver');
       if (!await saveDir.exists()) {
         await saveDir.create(recursive: true);
